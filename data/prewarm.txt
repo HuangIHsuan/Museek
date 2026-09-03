@@ -1,0 +1,43 @@
+# 預熱候選清單：一行一首「歌手|歌名」，# 開頭為註解。
+# 這份是 stub 曲庫轉出來的樣板，正式清單請由 T 依三組示範歌單策展後替換。
+
+Frank Ocean|White Ferrari
+Frank Ocean|Self Control
+Bon Iver|Holocene
+Bon Iver|re: Stacks
+Cigarettes After Sex|Apocalypse
+Beach House|Space Song
+Radiohead|Weird Fishes
+Sufjan Stevens|Mystery of Love
+Nujabes|Feather
+Tom Misch|Movie
+落日飛車 Sunset Rollercoaster|My Jinji
+告五人|唯一
+deca joins|浴室
+陳綺貞|魚
+盧廣仲|刻在我心底的名字
+茄子蛋|浪子回頭
+草東沒有派對|大風吹
+HYUKOH|Comes And Goes
+Se So Neon|Go Back
+IU|Through the Night
+YOASOBI|群青
+Fujii Kaze|Shinunoga E-Wa
+Mac DeMarco|Chamber of Reflection
+Men I Trust|Show Me How
+Khruangbin|August 10
+Men I Trust|Numb
+Clairo|Bags
+Rex Orange County|Sunflower
+Daniel Caesar|Best Part
+SZA|Good Days
+Phoebe Bridgers|Motion Sickness
+The xx|Intro
+Weyes Blood|Andromeda
+Alvvays|Archie, Marry Me
+Still Woozy|Goodie Bag
+Yellow Days|Your Hand Holding Mine
+Homeshake|Every Single Thing
+Crumb|Locket
+Slowdive|Sugar for the Pill
+Cocteau Twins|Cherry-coloured Funk

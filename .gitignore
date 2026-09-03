@@ -1,0 +1,21 @@
+node_modules/
+*.log
+.DS_Store
+Thumbs.db
+
+.venv/
+.env
+logs/
+__pycache__/
+*.pyc
+.pytest_cache/
+data/cache.json
+.env.backup
+
+# 開發工具的設定，不屬於這個專案
+.agents/
+.claude/
+skills-lock.json
+
+# 前端改動提案，待討論後決定是否採用
+app/static/index.proposed.html

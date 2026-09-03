@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Museek · 第一版視覺 (Visual v1)</title>
+<!-- Mockup only: fonts via CDN. In production self-host with @font-face. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="Museek-Visual-v1.css">
+<script>
+  // theme: default to saved choice, else system preference
+  (function(){
+    var saved = localStorage.getItem('museek-theme');
+    var theme = saved || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+    document.documentElement.setAttribute('data-theme', theme);
+  })();
+</script>
+<style>
+    :root{
+    /* one dark theme, locked */
+    --bg:        #0b0c11;
+    --bg-2:      #0e1017;
+    --panel:     rgba(255,255,255,.045);
+    --panel-2:   rgba(255,255,255,.07);
+    --stroke:    rgba(255,255,255,.10);
+    --stroke-2:  rgba(255,255,255,.16);
+    --ink:       #f4f5f7;
+    --muted:     #9aa0ad;
+    --faint:     #6b7180;
+    /* single accent (sonic lime) + in-family flow gradient */
+    --accent:    #c8ff4a;
+    --accent-ink:#0b0c11;
+    --flow-a:    #c8ff4a;
+    --flow-b:    #4be3c0;
+    --flow-c:    #38c6ff;
+    --flow-stroke: url(#fg);
+    --accent-glow: rgba(200,255,74,.24);
+    --halo:      rgba(200,255,74,.6);
+    --title-grad: linear-gradient(100deg, #c8ff4a, #4be3c0 55%, #38c6ff);
+    --radius:    22px;
+    --radius-lg: 34px;
+    --font: "Space Grotesk","PingFang TC","Microsoft JhengHei","Noto Sans TC",system-ui,sans-serif;
+    /* semantic surfaces (flip per theme) */
+    --surface:   rgba(255,255,255,.045);
+    --surface-2: rgba(255,255,255,.05);
+    --track-bg:  rgba(255,255,255,.06);
+    --geo-line:  rgba(255,255,255,.10);
+    --phone-bg:  linear-gradient(160deg, rgba(255,255,255,.10), rgba(255,255,255,.02));
+    --screen-bg: linear-gradient(180deg, #0f1219, #0b0d13);
+    --page-shadow: 0 30px 70px rgba(0,0,0,.55);
+  }
+
+  /* ---------- light theme (cream white + lavender-blue) ---------- */
+  [data-theme="light"]{
+    --bg:        #fffcd6;
+    --bg-2:      #fdf7ec;
+    --panel:     rgba(114,90,150,.055);
+    --panel-2:   rgba(114,90,150,.10);
+    --stroke:    rgba(114,90,150,.18);
+    --stroke-2:  rgba(114,90,150,.28);
+    --ink:       #2a2138;
+    --muted:     #6b5a78;
+    --faint:     #9c8aa8;
+    --accent:    #7298c7;
+    --accent-ink:#fffaf3;
+    --flow-a:    #c8a2c9;
+    --flow-b:    #a888c9;
+    --flow-c:    #7298c7;
+    --flow-stroke: url(#fg2);
+    --accent-glow: rgba(168,136,201,.32);
+    --halo:      rgba(146,120,190,.55);
+    --surface:   #fffdf7;
+    --surface-2: rgba(114,90,150,.06);
+    --track-bg:  rgba(114,90,150,.12);
+    --geo-line:  rgba(114,90,150,.13);
+    --phone-bg:  linear-gradient(160deg, #fffdf7, #efe6f3);
+    --screen-bg: linear-gradient(180deg, #fffdf7, #f6eef8);
+    --page-shadow: 0 24px 60px rgba(114,90,150,.20);
+    --title-grad: linear-gradient(100deg, #c8a2c9, #a888c9 48%, #7298c7);
+  }
+  [data-theme="light"] .flowbg{
+    background:
+      radial-gradient(1200px 700px at 78% -8%, rgba(200,162,201,.16), transparent 60%),
+      radial-gradient(900px 700px at 8% 12%, rgba(168,136,201,.11), transparent 58%),
+      radial-gradient(1000px 900px at 50% 118%, rgba(114,152,199,.09), transparent 60%),
+      linear-gradient(180deg, var(--bg), var(--bg-2));
+  }
+
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; }
+  body{
+    font-family:var(--font);
+    background:var(--bg);
+    color:var(--ink);
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+
+  /* ---------- flowing background (music flow) ---------- */
+  .flowbg{
+    position:fixed; inset:0; z-index:0; pointer-events:none;
+    background:
+      radial-gradient(1200px 700px at 78% -8%, rgba(200,255,74,.10), transparent 60%),
+      radial-gradient(900px 700px at 8% 12%, rgba(75,227,192,.08), transparent 58%),
+      radial-gradient(1000px 900px at 50% 118%, rgba(56,198,255,.07), transparent 60%),
+      linear-gradient(180deg, var(--bg), var(--bg-2));
+  }
+  .flowbg svg{ position:absolute; inset:0; width:100%; height:100%; }
+  .flowbg .flow{
+    fill:none; stroke:var(--flow-stroke); stroke-width:1.4; opacity:.5;
+    stroke-dasharray:8 14; animation:drift 22s linear infinite;
+  }
+  .flowbg .flow.b{ animation-duration:30s; opacity:.32; }
+  .flowbg .flow.c{ animation-duration:40s; opacity:.22; }
+  @keyframes drift{ to{ stroke-dashoffset:-440; } }
+
+  /* floating geometric vector shapes */
+  .geo{ position:absolute; border-radius:50%; filter:blur(.2px); opacity:.9; }
+  .geo.ring{ background:transparent; border:1.5px solid var(--geo-line); }
+  .geo.disc{ background:radial-gradient(circle at 32% 28%, var(--geo-line), rgba(255,255,255,0) 60%); border:1px solid var(--geo-line); }
+  .geo.g1{ width:190px; height:190px; top:11%; right:7%; animation:float1 16s ease-in-out infinite; }
+  .geo.g2{ width:96px;  height:96px;  top:40%; left:5%;  animation:float2 19s ease-in-out infinite; }
+  .geo.g3{ width:130px; height:130px; bottom:8%; right:20%; animation:float1 24s ease-in-out infinite; }
+  @keyframes float1{ 50%{ transform:translateY(-26px) translateX(10px);} }
+  @keyframes float2{ 50%{ transform:translateY(22px) translateX(-12px);} }
+
+  .wrap{ position:relative; z-index:1; max-width:1180px; margin:0 auto; padding:0 22px; }
+
+  /* ---------- top nav ---------- */
+  nav.top{
+    position:relative; z-index:2; display:flex; align-items:center; justify-content:space-between;
+    max-width:1180px; margin:0 auto; padding:22px;
+  }
+  .brand{ display:flex; align-items:center; gap:10px; font-weight:700; letter-spacing:1.5px; font-size:17px; }
+  .brand .mark{
+    width:26px; height:26px; border-radius:9px; display:grid; place-items:center;
+    background:linear-gradient(135deg, var(--flow-a), var(--flow-b));
+  }
+  .brand .mark svg{ display:block; }
+  nav.top .links{ display:flex; gap:26px; font-size:13px; color:var(--muted); }
+  nav.top .links span{ cursor:default; }
+  nav.top .cta{
+    font-size:13px; font-weight:600; color:var(--accent-ink); background:var(--accent);
+    padding:9px 16px; border-radius:999px; border:0;
+  }
+  .theme-toggle{
+    width:38px; height:38px; border-radius:999px; cursor:pointer;
+    background:var(--panel); border:1px solid var(--stroke-2); color:var(--ink);
+    display:grid; place-items:center; transition:background .2s ease, transform .15s ease;
+  }
+  .theme-toggle:hover{ background:var(--panel-2); transform:translateY(-1px); }
+  .theme-toggle:active{ transform:scale(.94); }
+  .theme-toggle .sun{ display:none; } .theme-toggle .moon{ display:block; }
+  [data-theme="light"] .theme-toggle .sun{ display:block; }
+  [data-theme="light"] .theme-toggle .moon{ display:none; }
+  nav.top .nav-actions{ display:flex; align-items:center; gap:12px; }
+  @media (max-width:640px){ nav.top .links{ display:none; } }
+
+  /* ---------- hero ---------- */
+  header.hero{ position:relative; z-index:1; padding:52px 0 30px; }
+  .eyebrow{
+    display:inline-flex; align-items:center; gap:8px; font-size:12px; letter-spacing:2px;
+    text-transform:uppercase; color:var(--muted); border:1px solid var(--stroke);
+    padding:6px 12px; border-radius:999px; background:var(--panel);
+  }
+  .eyebrow .pulse{ width:7px; height:7px; border-radius:50%; background:var(--accent);
+    box-shadow:0 0 0 0 var(--halo); animation:pulse 2.4s ease-out infinite; }
+  @keyframes pulse{ 70%{ box-shadow:0 0 0 9px rgba(200,255,74,0);} 100%{ box-shadow:0 0 0 0 rgba(200,255,74,0);} }
+  h1.title{
+    font-size:clamp(40px,7.4vw,80px); line-height:1.02; letter-spacing:-1.5px;
+    font-weight:700; margin:20px 0 0; max-width:15ch;
+  }
+  h1.title .grad{
+    background:var(--title-grad);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  .hero p.lede{ margin:20px 0 0; color:var(--muted); font-size:clamp(15px,1.6vw,18px); max-width:52ch; }
+  .hero .actions{ display:flex; gap:12px; margin-top:28px; flex-wrap:wrap; }
+  .btn-primary{
+    font-family:var(--font); font-size:15px; font-weight:600; color:var(--accent-ink);
+    background:var(--accent); border:0; padding:13px 24px; border-radius:999px; cursor:pointer;
+    transition:transform .15s ease, box-shadow .2s ease; box-shadow:0 8px 30px var(--accent-glow);
+  }
+  .btn-primary:hover{ transform:translateY(-2px); box-shadow:0 12px 40px var(--accent-glow); }
+  .btn-primary:active{ transform:translateY(0) scale(.98); }
+  .btn-ghost{
+    font-family:var(--font); font-size:15px; font-weight:500; color:var(--ink);
+    background:var(--panel); border:1px solid var(--stroke-2); padding:13px 22px; border-radius:999px; cursor:pointer;
+    transition:background .2s ease, transform .15s ease;
+  }
+  .btn-ghost:hover{ background:var(--panel-2); transform:translateY(-2px); }
+
+  /* animated waveform under hero */
+  .wave{ display:flex; align-items:flex-end; gap:5px; height:46px; margin-top:36px; opacity:.9; }
+  .wave i{ width:5px; border-radius:4px; background:linear-gradient(180deg, var(--flow-a), var(--flow-b));
+    animation:bounce 1.4s ease-in-out infinite; }
+  @keyframes bounce{ 0%,100%{ height:22%; } 50%{ height:100%; } }
+
+  /* ---------- section head ---------- */
+  .sec-head{ padding:64px 0 8px; }
+  .sec-head .k{ font-size:12px; letter-spacing:2px; text-transform:uppercase; color:var(--accent); }
+  .sec-head h2{ font-size:clamp(26px,3.4vw,38px); letter-spacing:-.8px; margin:12px 0 0; font-weight:600; }
+  .sec-head p{ color:var(--muted); margin:12px 0 0; max-width:60ch; }
+
+  /* ---------- phone gallery ---------- */
+  .gallery{
+    display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr));
+    gap:34px 30px; padding:38px 0 20px; align-items:start;
+  }
+  .screen .cap{ display:flex; align-items:baseline; gap:8px; margin:0 0 14px; padding-left:4px; }
+  .screen .cap .tg{ font-size:11px; font-weight:700; letter-spacing:.5px; color:var(--accent-ink);
+    background:var(--accent); border-radius:6px; padding:2px 7px; }
+  .screen .cap .tt{ font-size:14px; font-weight:600; }
+  .screen .cap .ds{ font-size:12px; color:var(--faint); }
+
+  .phone{
+    position:relative; width:300px; margin:0 auto; border-radius:44px; padding:11px;
+    background:var(--phone-bg);
+    border:1px solid var(--stroke-2);
+    box-shadow:var(--page-shadow), inset 0 1px 0 rgba(255,255,255,.14);
+  }
+  .screenv{
+    position:relative; height:600px; border-radius:34px; overflow:hidden;
+    background:var(--screen-bg);
+    border:1px solid var(--stroke);
+    display:flex; flex-direction:column; padding:16px 15px;
+  }
+  .screenv-glow{ position:absolute; inset:0; pointer-events:none;
+    background:radial-gradient(320px 200px at 80% -6%, var(--accent-glow), transparent 60%); }
+  .notch{ position:absolute; top:9px; left:50%; transform:translateX(-50%); width:96px; height:22px;
+    background:#05060a; border-radius:0 0 14px 14px; z-index:3; }
+  .sv{ position:relative; z-index:2; flex:1; overflow:hidden; display:flex; flex-direction:column; }
+
+  /* in-screen primitives */
+  .s-logo{ font-weight:700; letter-spacing:3px; font-size:15px; }
+  .s-tag{ font-size:11px; color:var(--muted); margin-top:2px; }
+  .lbl{ font-size:11px; color:var(--faint); text-transform:uppercase; letter-spacing:1.2px; margin:16px 0 8px; }
+  .field{
+    display:flex; align-items:center; gap:8px; background:var(--surface-2);
+    border:1px solid var(--stroke); border-radius:14px; padding:11px 13px; font-size:11px; color:var(--muted);
+  }
+  .b-primary{ background:var(--accent); color:var(--accent-ink); font-weight:600; font-size:12.5px;
+    text-align:center; border-radius:14px; padding:12px; margin-top:10px; }
+  .b-soft{ background:var(--surface-2); border:1px solid var(--stroke-2); color:var(--ink);
+    font-weight:500; font-size:12.5px; text-align:center; border-radius:14px; padding:12px; }
+  .divider{ text-align:center; font-size:11px; color:var(--faint); margin:14px 0; position:relative; }
+  .divider::before,.divider::after{ content:""; position:absolute; top:50%; width:38%; height:1px;
+    background:linear-gradient(90deg,transparent,var(--stroke-2)); }
+  .divider::before{ left:0; } .divider::after{ right:0; transform:scaleX(-1); }
+  .pills{ display:flex; gap:7px; flex-wrap:wrap; }
+  .pill{ font-size:11px; color:var(--ink); background:var(--surface-2);
+    border:1px solid var(--stroke-2); border-radius:999px; padding:6px 12px; }
+  .pill.on{ background:var(--accent); color:var(--accent-ink); border-color:transparent; font-weight:600; }
+
+  /* taste feature bars as flowing lines */
+  .feat{ margin:11px 0; }
+  .feat .k{ display:flex; justify-content:space-between; font-size:11px; color:var(--muted); margin-bottom:5px; }
+  .feat .k b{ color:var(--ink); font-weight:600; }
+  .feat .track{ height:8px; border-radius:6px; background:var(--track-bg); overflow:hidden; }
+  .feat .track > span{ display:block; height:100%; border-radius:6px;
+    background:linear-gradient(90deg, var(--flow-a), var(--flow-b)); }
+  .feat .track.alt > span{ background:linear-gradient(90deg, var(--flow-b), var(--flow-c)); }
+
+  .glass-card{ background:var(--surface); border:1px solid var(--stroke);
+    border-radius:16px; padding:12px; margin-top:12px; }
+  .glass-card .h{ font-size:12px; font-weight:600; margin-bottom:6px; display:flex; align-items:center; gap:7px; }
+  .glass-card .bd{ font-size:11.5px; color:var(--muted); }
+
+  /* thinking steps */
+  .step{ display:flex; align-items:center; gap:10px; font-size:11.5px; margin:11px 0; }
+  .step .dot{ width:14px; height:14px; border-radius:50%; border:2px solid var(--stroke-2); flex:0 0 auto; }
+  .step.done{ color:var(--ink); } .step.done .dot{ background:var(--accent); border-color:transparent; }
+  .step.run{ color:var(--ink); } .step.run .dot{ border-color:var(--accent);
+    box-shadow:0 0 0 0 var(--halo); animation:pulse 1.8s ease-out infinite; }
+  .step.wait{ color:var(--faint); }
+
+  /* timeline: circles connected by a vertical line */
+  .timeline{ display:flex; flex-direction:column; }
+  .timeline .step{ position:relative; height:46px; margin:0; align-items:center; }
+  .timeline .step .dot{ position:relative; z-index:1; }
+  .timeline .step:not(:last-child) .dot::after{
+    content:""; position:absolute; top:calc(100% + 2px); left:50%; transform:translateX(-50%);
+    width:2px; height:28px; background:var(--stroke-2); border-radius:2px;
+  }
+  .timeline .step.done .dot::after{ background:var(--accent); }
+
+  /* player */
+  .player{ position:relative; border-radius:18px; overflow:hidden; aspect-ratio:16/9;
+    background:linear-gradient(135deg, rgba(75,227,192,.25), rgba(56,198,255,.18));
+    display:grid; place-items:center; border:1px solid var(--stroke); }
+  .player::after{ content:""; position:absolute; inset:0;
+    background:radial-gradient(120px 80px at 30% 20%, rgba(255,255,255,.25), transparent 60%); }
+  .player .play{ position:relative; z-index:1; width:46px; height:46px; border-radius:50%;
+    background:rgba(11,12,17,.55); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); display:grid; place-items:center;
+    border:1px solid rgba(255,255,255,.4); }
+  .player .play::after{ content:""; border-left:14px solid #fff; border-top:9px solid transparent;
+    border-bottom:9px solid transparent; margin-left:4px; }
+
+  .track-card{ display:flex; gap:11px; align-items:center; background:var(--surface);
+    border:1px solid var(--stroke); border-radius:16px; padding:10px; margin-top:11px; }
+  .track-card .th{ width:46px; height:46px; border-radius:11px; flex:0 0 auto;
+    background:linear-gradient(135deg, var(--flow-b), var(--flow-c)); }
+  .track-card .th.v2{ background:linear-gradient(135deg, var(--flow-a), var(--flow-b)); }
+  .track-card .m{ flex:1; min-width:0; }
+  .track-card .m .t{ font-size:12.5px; font-weight:600; }
+  .track-card .m .a{ font-size:11px; color:var(--muted); }
+  .track-card .n{ font-size:11px; color:var(--faint); }
+  .why{ font-size:11px; color:var(--muted); border-left:2px solid var(--flow-b);
+    padding-left:9px; margin:10px 0; }
+  .fb{ display:flex; gap:8px; margin-top:8px; }
+  .fb .b{ flex:1; text-align:center; border:1px solid var(--stroke-2); border-radius:11px; padding:7px; font-size:12px; }
+  .health{ display:inline-flex; align-items:center; gap:6px; font-size:10px; color:var(--muted);
+    background:var(--surface-2); border:1px solid var(--stroke); border-radius:999px; padding:4px 9px; }
+  .health .g{ width:7px; height:7px; border-radius:50%; background:#8ff0a0; box-shadow:0 0 8px #8ff0a0; }
+  .foot-note{ margin-top:auto; font-size:10px; color:var(--faint); text-align:center; padding-top:8px; }
+
+  /* install / PWA tip (S1) */
+  .install-tip{ border:1px dashed var(--stroke-2); border-radius:16px; padding:16px;
+    font-size:11.5px; color:var(--muted); text-align:center; }
+  .share-ico{ font-size:22px; }
+
+  /* dimmed background behind a popup (S7) */
+  .dimmed{ opacity:.4; }
+  .popup-overlay{ position:absolute; inset:0; z-index:4;
+    display:grid; place-items:center; padding:14px;
+    background:rgba(5,6,10,.55); backdrop-filter:blur(2px); -webkit-backdrop-filter:blur(2px); border-radius:inherit; }
+  .popup-overlay .glass-card{ width:100%; margin:0; box-shadow:var(--page-shadow); }
+
+  /* health corner + expanding panel (S8) */
+  .health-corner{ position:absolute; bottom:16px; right:16px; z-index:4; }
+  .health-panel{ position:absolute; bottom:42px; right:16px; width:210px; z-index:4;
+    background:var(--surface); border:1px solid var(--stroke-2); border-radius:16px;
+    box-shadow:var(--page-shadow); padding:12px; font-size:11px; }
+  .health-panel::before{ content:""; position:absolute; bottom:-6px; right:16px; width:10px; height:10px;
+    background:var(--surface); border-right:1px solid var(--stroke-2); border-bottom:1px solid var(--stroke-2);
+    transform:rotate(45deg); }
+  .health-panel .grp{ border-top:1px solid var(--stroke); margin-top:8px; padding-top:8px; }
+  .health-panel .grp:first-child{ border-top:none; margin-top:0; padding-top:0; }
+  .health-panel .grp.note{ color:var(--muted); }
+
+  /* desktop / web RWD (W1, W2) */
+  .browser-wrap{ position:relative; z-index:1; padding:10px 0 30px; }
+  .browser{ border:1px solid var(--stroke-2); border-radius:20px; overflow:hidden;
+    background:var(--surface); box-shadow:var(--page-shadow); }
+  .browser .bar{ display:flex; align-items:center; gap:10px; padding:11px 16px;
+    background:var(--panel); border-bottom:1px solid var(--stroke); }
+  .browser .bar .dots{ display:flex; gap:6px; }
+  .browser .bar .dots i{ width:9px; height:9px; border-radius:50%; background:var(--stroke-2); display:block; }
+  .browser .bar .url{ flex:1; background:var(--surface-2); border:1px solid var(--stroke);
+    border-radius:8px; font-size:11.5px; color:var(--muted); padding:5px 12px; }
+  .d-topbar{ display:flex; align-items:center; justify-content:space-between; padding:16px 28px;
+    border-bottom:1px solid var(--stroke); }
+  .d-topbar .brand{ font-weight:700; letter-spacing:2px; font-size:16px; }
+  .d-topbar .nav{ display:flex; gap:20px; font-size:12px; color:var(--muted); }
+  .d-stage{ padding:34px 28px; background:var(--bg-2); }
+  .d-center{ max-width:440px; margin:0 auto; }
+  .d-two{ display:grid; grid-template-columns:1.1fr .9fr; gap:30px; max-width:920px; margin:0 auto; }
+  .d-two .left{ position:sticky; top:0; }
+  @media (max-width:760px){ .d-two{ grid-template-columns:1fr; } .d-topbar .nav{ display:none; } }
+
+  /* footer */
+  footer.f{ position:relative; z-index:1; border-top:1px solid var(--stroke);
+    margin-top:60px; padding:34px 0 60px; color:var(--muted); font-size:13px; }
+  footer.f .row{ display:flex; justify-content:space-between; gap:20px; flex-wrap:wrap; }
+  footer.f b{ color:var(--ink); }
+
+  @media (prefers-reduced-motion: reduce){
+    *{ animation:none !important; }
+  }
+
+</style>
+
+</head>
+<body>
+
+<div class="flowbg" aria-hidden="true">
+  <svg viewBox="0 0 1440 900" preserveAspectRatio="none">
+    <defs>
+      <linearGradient id="fg" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#c8ff4a"/><stop offset="0.5" stop-color="#4be3c0"/><stop offset="1" stop-color="#38c6ff"/>
+      </linearGradient>
+      <linearGradient id="fg2" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#ffb01f"/><stop offset="0.5" stop-color="#ff6a1a"/><stop offset="1" stop-color="#d81f3a"/>
+      </linearGradient>
+    </defs>
+    <path class="flow"   stroke="url(#fg)" d="M-50,240 C 260,120 420,360 720,300 C 1020,240 1180,60 1500,180"/>
+    <path class="flow b" stroke="url(#fg)" d="M-50,420 C 300,320 460,560 760,480 C 1060,400 1200,240 1500,360"/>
+    <path class="flow c" stroke="url(#fg)" d="M-50,620 C 280,540 500,760 800,660 C 1100,560 1240,420 1500,540"/>
+  </svg>
+  <span class="geo disc g1"></span>
+  <span class="geo ring g2"></span>
+  <span class="geo disc g3"></span>
+</div>
+
+<nav class="top">
+  <div class="brand">
+    <span class="mark">
+      <svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 9V3l8-1.4V7.4" fill="none" stroke="#0b0c11" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="3" cy="10" r="1.8" fill="#0b0c11"/><circle cx="11" cy="8.4" r="1.8" fill="#0b0c11"/></svg>
+    </span>
+    MUSEEK
+  </div>
+  <div class="links"><span>探索</span><span>我的品味</span><span>關於</span></div>
+  <div class="nav-actions">
+    <button class="theme-toggle" id="themeToggle" aria-label="切換亮色 / 深色" title="切換亮色 / 深色">
+      <svg class="moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      <svg class="sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2M12 20v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2 12h2M20 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/></svg>
+    </button>
+    <button class="cta">開始探索</button>
+  </div>
+</nav>
+
+<div class="wrap">
+  <header class="hero">
+    <span class="eyebrow"><span class="pulse"></span>AI MUSIC DISCOVERY</span>
+    <h1 class="title">Seek Your <br><span class="grad">Next Sound</span></h1>
+    <p class="lede">貼上一份公開歌單，或只用一句話描述此刻的氛圍。Museek 讀懂你的品味，讓推薦像音樂一樣自然流動。</p>
+    <div class="actions">
+      <button class="btn-primary">貼歌單，建立品味檔案</button>
+      <button class="btn-ghost">用一句話開始探索</button>
+    </div>
+    <div class="wave" aria-hidden="true">
+      <script>/* bars generated below */</script>
+    </div>
+  </header>
+
+  <div class="sec-head">
+    <div class="k">Core Flow · P0</div>
+    <h2>從歌單到推薦的一次完整流動</h2>
+    <p>手機直式為主的單頁 PWA。以下為第一版視覺，對照 wireframe v3.1 的 8 個核心畫面，錯誤/降級與健康檢查改為疊在原畫面上的浮層。</p>
+  </div>
+
+  <section class="gallery">
+
+    <!-- S1 Launch / PWA install -->
+    <div class="screen">
+      <div class="cap"><span class="tg">S1</span><span class="tt">啟動 · PWA 安裝引導</span><span class="ds">加入主畫面</span></div>
+      <div class="phone"><div class="notch"></div><div class="screenv"><div class="screenv-glow"></div><div class="sv">
+        <div style="text-align:center; margin-top:6px;">
+          <div class="s-logo">MUSEEK</div>
+          <div class="s-tag">Seek Your Next Sound.</div>
+        </div>
+        <div class="player" style="margin-top:14px; aspect-ratio:16/10;"><span style="font-size:11px; color:var(--muted);">主視覺 / Loading</span></div>
+        <div class="install-tip" style="margin-top:16px;">
+          <div class="share-ico">⬆️</div>
+          點 Safari <b>分享</b> → <b>加入主畫面</b><br>取得全螢幕 App 體驗
+        </div>
+        <div class="b-soft" style="margin-top:10px;">稍後再說，直接開始</div>
+      </div></div></div>
+    </div>
+
+    <!-- S2 Entry -->
+    <div class="screen">
+      <div class="cap"><span class="tg">S2</span><span class="tt">入口 · 雙路徑選擇</span><span class="ds">貼歌單 → S3 / 描述氛圍 → 直接進 S4</span></div>
+      <div class="phone"><div class="notch"></div><div class="screenv"><div class="screenv-glow"></div><div class="sv">
+        <div class="s-logo">MUSEEK</div>
+        <div class="s-tag">你的音樂探索夥伴</div>
+
+        <div class="lbl">① 貼上公開歌單</div>
+        <div class="field">🔗&nbsp; youtube.com/playlist?list=…</div>
+        <div class="b-primary">解析歌單，建立品味檔案</div>
+
+        <div class="divider">或</div>
+
+        <div class="lbl">② 沒有歌單？直接描述當下氛圍</div>
+        <div class="field" style="height:52px; align-items:flex-start;">下雨天開車想放空，但不要太吵…</div>
+        <div class="pills" style="margin-top:8px;"><span class="pill">深夜開車</span><span class="pill">專注工作</span><span class="pill">運動</span></div>
+        <div class="b-primary" style="margin-top:8px;">開始探索 →</div>
+      </div></div></div>
+    </div>
+
+    <!-- S3 Taste -->
+    <div class="screen">
+      <div class="cap"><span class="tg">S3</span><span class="tt">品味檔案</span><span class="ds">我讀到的你</span></div>
+      <div class="phone"><div class="notch"></div><div class="screenv"><div class="screenv-glow"></div><div class="sv">
+        <div class="s-logo" style="font-size:13px;">我讀到的你</div>
+        <div class="s-tag">來自 48 首歌的品味輪廓</div>
+        <div class="lbl">音訊特徵（歌單平均）</div>
+        <div class="feat"><div class="k"><span>energy</span><b>0.42</b></div><div class="track"><span style="width:42%"></span></div></div>
+        <div class="feat"><div class="k"><span>valence</span><b>0.51</b></div><div class="track alt"><span style="width:51%"></span></div></div>
+        <div class="feat"><div class="k"><span>danceability</span><b>0.55</b></div><div class="track"><span style="width:55%"></span></div></div>
+        <div class="feat"><div class="k"><span>acousticness</span><b>0.38</b></div><div class="track alt"><span style="width:38%"></span></div></div>
+        <div class="lbl">主要曲風</div>
+        <div class="pills"><span class="pill on">Indie</span><span class="pill">City Pop</span><span class="pill">R&amp;B</span></div>
+        <div class="glass-card"><div class="h">🎯 比對結果</div><div class="bd">共 48 首 · 已收錄 41 · 未收錄 7</div></div>
+        <div class="b-primary">下一步：描述你的情境</div>
+      </div></div></div>
+    </div>
+
+    <!-- S4 Thinking -->
+    <div class="screen">
+      <div class="cap"><span class="tg">S4</span><span class="tt">Agent 思考中</span><span class="ds">SSE 串流</span></div>
+      <div class="phone"><div class="notch"></div><div class="screenv"><div class="screenv-glow"></div><div class="sv">
+        <div class="wave" style="height:56px; margin:32px 0 6px; justify-content:center;" aria-hidden="true" id="wave2"></div>
+        <div style="text-align:center;">
+          <div class="s-logo" style="font-size:13px;">正在為你探索…</div>
+        </div>
+        <div class="timeline" style="margin-top:22px;">
+          <div class="step done"><span class="dot"></span>理解情境：低能量 · 放鬆 · 雨天</div>
+          <div class="step done"><span class="dot"></span>從 ReccoBeats 取得 42 首候選</div>
+          <div class="step run"><span class="dot"></span>依 Discovery Score 排序，取前 8 首</div>
+          <div class="step wait"><span class="dot"></span>驗證 YouTube videoId（過濾幻覺）</div>
+          <div class="step wait"><span class="dot"></span>生成推薦理由</div>
+        </div>
+      </div></div></div>
+    </div>
+
+    <!-- S5 Results -->
+    <div class="screen">
+      <div class="cap"><span class="tg">S5</span><span class="tt">推薦結果</span><span class="ds">單一播放器 + 卡片清單</span></div>
+      <div class="phone"><div class="notch"></div><div class="screenv"><div class="screenv-glow"></div><div class="sv">
+        <span class="health health-corner"><span class="g"></span>健康</span>
+        <div class="player"><div class="play"></div></div>
+        <div class="s-logo" style="font-size:13px; margin-top:10px;">今日推薦 · 5 首</div>
+        <div class="track-card">
+          <div class="th"></div>
+          <div class="m"><div class="t">Rainy Avenue</div><div class="a">Mio Karlsson</div></div>
+          <div class="n">1</div>
+        </div>
+        <div class="why">energy 與你平常聽的幾乎一致，但原音比例高出許多，82 BPM 適合雨天放空。</div>
+        <div class="pills"><span class="pill">energy 0.45</span><span class="pill">valence 0.55</span><span class="pill">tempo 82</span></div>
+        <div class="fb"><div class="b">👍</div><div class="b">👎</div></div>
+        <div class="track-card">
+          <div class="th v2"></div>
+          <div class="m"><div class="t">Slow Static</div><div class="a">Haruka L..</div></div>
+          <div class="n">2</div>
+        </div>
+        <div class="why">相似度 0.82 的甜蜜點：有關聯也有驚喜。</div>
+        <div class="fb"><div class="b">👍</div><div class="b">👎</div></div>
+        <div class="foot-note">↓ 共 5 首 · 向下捲動</div>
+      </div></div></div>
+    </div>
+
+    <!-- S6 Why -->
+    <div class="screen">
+      <div class="cap"><span class="tg">S6</span><span class="tt">Why this song?</span><span class="ds">特徵對照</span></div>
+      <div class="phone"><div class="notch"></div><div class="screenv"><div class="screenv-glow"></div><div class="sv">
+        <div class="track-card" style="margin-top:0;">
+          <div class="th"></div>
+          <div class="m"><div class="t">Rainy Avenue</div><div class="a">Mio Karlsson</div></div>
+        </div>
+        <div class="glass-card"><div class="h">✦ 為什麼推薦這首</div>
+          <div class="bd">energy 幾乎一致，但原音比例高出許多，82 BPM 的緩速正適合雨天車行的放空感。</div></div>
+        <div class="lbl">特徵對照（你 vs 這首）</div>
+        <div class="feat"><div class="k"><span>energy</span><b>0.42 / 0.45</b></div><div class="track"><span style="width:45%"></span></div></div>
+        <div class="feat"><div class="k"><span>valence</span><b>0.51 / 0.55</b></div><div class="track alt"><span style="width:55%"></span></div></div>
+        <div class="feat"><div class="k"><span>acousticness</span><b>0.38 / 0.72</b></div><div class="track"><span style="width:72%"></span></div></div>
+        <div class="lbl">Discovery Score</div>
+        <div class="pills"><span class="pill">similarity 0.74</span><span class="pill">novelty 0.62</span><span class="pill">context_fit 0.88</span></div>
+        <div class="fb" style="margin-top:14px;">
+          <div class="b" style="flex:1.4; color:var(--muted);">在 YouTube 開啟</div>
+          <div class="b" style="flex:1.6; background:var(--accent); color:var(--accent-ink); border-color:transparent; font-weight:600;">加入我的歌單</div>
+        </div>
+      </div></div></div>
+    </div>
+
+    <!-- S7 Error / Degraded · 私人歌單（觸發於 S2） -->
+    <div class="screen">
+      <div class="cap"><span class="tg">S7</span><span class="tt">錯誤 · 私人歌單</span><span class="ds">觸發於 S2</span></div>
+      <div class="phone"><div class="notch"></div><div class="screenv"><div class="screenv-glow"></div><div class="sv">
+        <div class="dimmed">
+          <div class="s-logo">MUSEEK</div>
+          <div class="s-tag">你的音樂探索夥伴</div>
+          <div class="lbl">① 貼上公開歌單</div>
+          <div class="field">🔗&nbsp; youtube.com/playlist?list=…（私人）</div>
+          <div class="b-primary">解析歌單，建立品味檔案</div>
+        </div>
+        <div class="popup-overlay">
+          <div class="glass-card"><div class="h">⚠ 這份歌單目前是私人的</div>
+            <div class="bd">請改為公開連結歌單。</div>
+            <div class="b-primary" style="margin-top:12px;">知道了</div>
+          </div>
+        </div>
+      </div></div></div>
+    </div>
+
+    <!-- S7 Error / Degraded · 特徵服務不穩（觸發於 S4） -->
+    <div class="screen">
+      <div class="cap"><span class="tg">S7</span><span class="tt">降級 · 特徵服務不穩</span><span class="ds">觸發於 S4</span></div>
+      <div class="phone"><div class="notch"></div><div class="screenv"><div class="screenv-glow"></div><div class="sv">
+        <div class="dimmed">
+          <div class="s-logo" style="font-size:13px;">正在為你探索…</div>
+          <div class="timeline" style="margin-top:14px;">
+            <div class="step done"><span class="dot"></span>理解情境：低能量 · 放鬆 · 雨天</div>
+            <div class="step run"><span class="dot"></span>從 ReccoBeats 取得候選</div>
+            <div class="step wait"><span class="dot"></span>依 Discovery Score 排序</div>
+          </div>
+        </div>
+        <div class="popup-overlay">
+          <div class="glass-card"><div class="h">ℹ 降級中</div>
+            <div class="bd">特徵服務暫時不穩，本輪改用語意排序，理由以文字描述呈現。</div>
+            <div class="b-primary" style="margin-top:12px;">繼續</div>
+          </div>
+        </div>
+      </div></div></div>
+    </div>
+
+    <!-- S7 Error / Degraded · 配額保護（觸發於 S5） -->
+    <div class="screen">
+      <div class="cap"><span class="tg">S7</span><span class="tt">降級 · 配額保護</span><span class="ds">觸發於 S5</span></div>
+      <div class="phone"><div class="notch"></div><div class="screenv"><div class="screenv-glow"></div><div class="sv">
+        <div class="dimmed">
+          <div class="player" style="margin-top:2px;"><div class="play"></div></div>
+          <div class="track-card">
+            <div class="th"></div>
+            <div class="m"><div class="t">Rainy Avenue</div><div class="a">Mio Karlsson</div></div>
+          </div>
+        </div>
+        <div class="popup-overlay">
+          <div class="glass-card"><div class="h">ℹ 配額保護</div>
+            <div class="bd">目前僅使用快取曲目，仍可播放，曲目池較小。</div>
+            <div class="b-primary" style="margin-top:12px;">知道了</div>
+          </div>
+        </div>
+      </div></div></div>
+    </div>
+
+    <!-- S8 Health check corner panel -->
+    <div class="screen">
+      <div class="cap"><span class="tg">S8</span><span class="tt">健康檢查</span><span class="ds">內部用 · 點右下角燈展開</span></div>
+      <div class="phone"><div class="notch"></div><div class="screenv"><div class="screenv-glow"></div><div class="sv">
+        <div class="dimmed">
+          <div class="player" style="margin-top:2px;"><div class="play"></div></div>
+          <div class="track-card">
+            <div class="th"></div>
+            <div class="m"><div class="t">Rainy Avenue</div><div class="a">Mio Karlsson</div></div>
+          </div>
+        </div>
+        <span class="health health-corner"><span class="g"></span>健康</span>
+        <div class="health-panel">
+          <div class="grp">
+            <div class="step done"><span class="dot"></span>YouTube&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;正常</div>
+            <div class="step done"><span class="dot"></span>ReccoBeats&nbsp;正常</div>
+            <div class="step run"><span class="dot"></span>LLM Gateway&nbsp;延遲</div>
+            <div class="step done"><span class="dot"></span>MongoDB&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;正常</div>
+          </div>
+          <div class="grp note">配額<br>quota_used：2,400 / 10,000</div>
+          <div class="grp note">本輪防護<br>returned 5 · dropped 3（幻覺／不可嵌入已攔截）</div>
+        </div>
+      </div></div></div>
+    </div>
+
+  </section>
+
+  <div class="sec-head">
+    <div class="k">Web RWD</div>
+    <h2>網頁版（桌機 / 平板）— 居中定寬 + 雙欄展開</h2>
+    <p>手機優先，桌機為漸進增強：入口類單欄置中，推薦頁在 ≥760px 展開為雙欄，單一播放器合規不變。</p>
+  </div>
+
+  <div class="browser-wrap">
+    <div class="cap" style="margin:0 0 14px;"><span class="tg">W1</span><span class="tt">網頁版 · 入口</span><span class="ds">單欄置中，寬度同手機版</span></div>
+    <div class="browser">
+      <div class="bar"><div class="dots"><i></i><i></i><i></i></div><div class="url">https://museek.sit.example.com</div></div>
+      <div>
+        <div class="d-topbar">
+          <div class="brand">MUSEEK</div>
+          <div class="nav"><span>探索</span><span>我的品味</span><span>關於</span></div>
+        </div>
+        <div class="d-stage"><div class="d-center">
+          <div class="s-logo" style="text-align:center; font-size:20px;">懂你音樂品味的 AI 探索夥伴</div>
+          <div class="s-tag" style="text-align:center;">Seek Your Next Sound.</div>
+          <div class="lbl">① 貼上公開歌單</div>
+          <div class="field">🔗&nbsp; youtube.com/playlist?list=…</div>
+          <div class="b-primary">解析歌單，建立品味檔案</div>
+          <div class="divider">或</div>
+          <div class="lbl">② 沒有歌單？描述氛圍</div>
+          <div class="b-soft">用一句話開始探索</div>
+          <div class="pills" style="margin-top:10px;"><span class="pill">深夜開車</span><span class="pill">專注工作</span><span class="pill">運動</span></div>
+        </div></div>
+      </div>
+    </div>
+
+    <div class="cap" style="margin:26px 0 14px;"><span class="tg">W2</span><span class="tt">網頁版 · 推薦結果</span><span class="ds">左：播放器 + Why（sticky）· 右：卡片清單</span></div>
+    <div class="browser">
+      <div class="bar"><div class="dots"><i></i><i></i><i></i></div><div class="url">https://museek.sit.example.com/explore</div></div>
+      <div>
+        <div class="d-topbar">
+          <div class="brand">MUSEEK</div>
+          <span class="health" style="position:static;"><span class="g"></span>健康 2,400/10,000</span>
+        </div>
+        <div class="d-stage"><div class="d-two">
+          <div class="left">
+            <div class="player"><div class="play"></div></div>
+            <div class="glass-card"><div class="h">✦ Why this song?</div>
+              <div class="bd">energy 幾乎一致，但原音比例高出許多，82 BPM 適合雨天放空。</div></div>
+            <div class="pills"><span class="pill">similarity 0.74</span><span class="pill">novelty 0.62</span><span class="pill">context_fit 0.88</span></div>
+          </div>
+          <div class="right">
+            <div class="lbl">今日推薦 · 5 首</div>
+            <div class="track-card" style="margin-top:0;">
+              <div class="th"></div>
+              <div class="m"><div class="t">Rainy Avenue</div><div class="a">Mio Karlsson</div></div>
+              <div class="n">1</div>
+            </div>
+            <div class="why">energy 與你平常聽的幾乎一致，82 BPM 適合雨天放空。</div>
+            <div class="fb"><div class="b">👍</div><div class="b">👎</div></div>
+            <div class="track-card">
+              <div class="th v2"></div>
+              <div class="m"><div class="t">Slow Static</div><div class="a">Haruka L..</div></div>
+              <div class="n">2</div>
+            </div>
+            <div class="fb"><div class="b">👍</div><div class="b">👎</div></div>
+          </div>
+        </div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer class="f"><div class="wrap"><div class="row">
+  <div><b>Museek</b> · Seek Your Next Sound.</div>
+  <div>第一版視覺 · 幾何向量 + 流動線條 · 對照 Wireframe v3.1</div>
+</div></div></footer>
+
+<script>
+  // build waveforms (bars with varied heights + delays) — decorative, honors reduced-motion via CSS
+  function fillWave(el, count){
+    for(let i=0;i<count;i++){
+      const b=document.createElement('i');
+      b.style.height=(20+Math.random()*70)+'%';
+      b.style.animationDelay=(-Math.random()*1.4)+'s';
+      b.style.animationDuration=(1+Math.random()*0.8)+'s';
+      el.appendChild(b);
+    }
+  }
+  fillWave(document.querySelector('.hero .wave'), 42);
+  const w2=document.getElementById('wave2'); if(w2) fillWave(w2, 22);
+
+  // theme toggle
+  document.getElementById('themeToggle').addEventListener('click', function(){
+    var next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('museek-theme', next);
+  });
+</script>
+</body>
+</html>

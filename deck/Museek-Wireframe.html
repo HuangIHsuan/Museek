@@ -1,0 +1,1236 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Museek 前端介面 Wireframe</title>
+  <style>
+    :root {
+      --ink: #222;
+      --line: #999;
+      --muted: #777;
+      --fill: #eee;
+      --fill2: #e0e0e0;
+      --accent: #444;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Microsoft JhengHei", sans-serif;
+      background: #f4f4f4;
+      color: var(--ink);
+      line-height: 1.5;
+    }
+
+    header.page-head {
+      padding: 28px 24px 8px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    header.page-head h1 {
+      margin: 0 0 4px;
+      font-size: 24px;
+    }
+
+    header.page-head p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .legend {
+      max-width: 1200px;
+      margin: 12px auto 0;
+      padding: 12px 24px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .legend code {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 1px 6px;
+      color: var(--ink);
+    }
+
+    .flow-map {
+      max-width: 1200px;
+      margin: 8px auto 0;
+      padding: 10px 24px;
+      font-size: 12px;
+      color: var(--muted);
+      white-space: pre;
+      font-family: "Consolas", monospace;
+    }
+
+    /* 按鈕下方的導向標示：按下這顆鈕會出現哪個畫面 */
+    .goto {
+      font-size: 10px;
+      color: #fff;
+      background: var(--accent);
+      display: inline-block;
+      border-radius: 4px;
+      padding: 1px 6px;
+      margin: -3px 0 6px;
+    }
+
+    .grid {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 16px 24px 60px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 28px;
+    }
+
+    .screen {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .screen>.caption {
+      margin: 0 0 8px;
+    }
+
+    .screen .caption .tag {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .5px;
+      background: var(--ink);
+      color: #fff;
+      border-radius: 4px;
+      padding: 2px 7px;
+      margin-right: 6px;
+    }
+
+    .screen .caption .title {
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .screen .caption .desc {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 3px;
+    }
+
+    /* phone frame */
+    .phone {
+      background: #fff;
+      border: 2px solid var(--ink);
+      border-radius: 26px;
+      padding: 10px;
+      width: 300px;
+      height: 620px;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, .08);
+    }
+
+    .phone .notch {
+      width: 110px;
+      height: 18px;
+      background: var(--ink);
+      border-radius: 0 0 12px 12px;
+      margin: 0 auto 6px;
+    }
+
+    .viewport {
+      flex: 1;
+      border: 1px dashed var(--line);
+      border-radius: 14px;
+      padding: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      background: #fbfbfb;
+    }
+
+    /* wireframe primitives */
+    .wf-logo {
+      text-align: center;
+      font-weight: 800;
+      letter-spacing: 2px;
+      font-size: 20px;
+      margin: 6px 0;
+    }
+
+    .wf-sub {
+      text-align: center;
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    .box {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--fill);
+    }
+
+    .line {
+      height: 8px;
+      background: var(--fill2);
+      border-radius: 4px;
+      margin: 5px 0;
+    }
+
+    .line.s {
+      width: 55%;
+    }
+
+    .line.m {
+      width: 75%;
+    }
+
+    .line.l {
+      width: 92%;
+    }
+
+    .label {
+      font-size: 11px;
+      color: var(--muted);
+      margin: 8px 0 4px;
+      font-weight: 700;
+      letter-spacing: .3px;
+    }
+
+    .input {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 8px 10px;
+      font-size: 11px;
+      color: var(--muted);
+      margin: 4px 0;
+    }
+
+    .btn {
+      border: 1px solid var(--ink);
+      border-radius: 8px;
+      text-align: center;
+      padding: 9px;
+      font-size: 12px;
+      font-weight: 700;
+      margin: 6px 0;
+      background: var(--ink);
+      color: #fff;
+    }
+
+    .btn.ghost {
+      background: #fff;
+      color: var(--ink);
+      font-weight: 600;
+    }
+
+    .btn.sm {
+      padding: 6px;
+      font-size: 11px;
+    }
+
+    .row {
+      display: flex;
+      gap: 6px;
+    }
+
+    .row>* {
+      flex: 1;
+    }
+
+    .center {
+      text-align: center;
+    }
+
+    /* feature bar */
+    .feat {
+      margin: 6px 0;
+    }
+
+    .feat .k {
+      font-size: 10px;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .feat .track {
+      height: 7px;
+      background: var(--fill2);
+      border-radius: 4px;
+      margin-top: 2px;
+      overflow: hidden;
+    }
+
+    .feat .track>span {
+      display: block;
+      height: 100%;
+      background: var(--accent);
+    }
+
+    /* thinking steps */
+    .step {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      margin: 7px 0;
+      color: var(--ink);
+    }
+
+    .step .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      border: 2px solid var(--ink);
+      flex: 0 0 auto;
+    }
+
+    .step.done .dot {
+      background: var(--ink);
+    }
+
+    .step.run .dot {
+      background: #fff;
+      border-style: dashed;
+    }
+
+    .step.wait {
+      color: var(--muted);
+    }
+
+    .step.wait .dot {
+      border-color: var(--line);
+    }
+
+    /* player */
+    .player {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--fill2);
+      aspect-ratio: 16/9;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      color: var(--muted);
+      position: relative;
+    }
+
+    .player .play {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      border: 2px solid var(--muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .player .play::after {
+      content: "";
+      border-left: 10px solid var(--muted);
+      border-top: 7px solid transparent;
+      border-bottom: 7px solid transparent;
+      margin-left: 3px;
+    }
+
+    /* rec card */
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px;
+      margin: 7px 0;
+      background: #fff;
+    }
+
+    .card .top {
+      display: flex;
+      gap: 8px;
+    }
+
+    .card .thumb {
+      width: 54px;
+      height: 32px;
+      background: var(--fill2);
+      border-radius: 4px;
+      flex: 0 0 auto;
+    }
+
+    .card .meta {
+      flex: 1;
+    }
+
+    .card .meta .t {
+      height: 7px;
+      width: 80%;
+      background: var(--fill2);
+      border-radius: 4px;
+    }
+
+    .card .meta .a {
+      height: 6px;
+      width: 50%;
+      background: var(--fill);
+      border-radius: 4px;
+      margin-top: 5px;
+    }
+
+    .card .why {
+      font-size: 10px;
+      color: var(--muted);
+      margin: 6px 0 4px;
+      border-left: 2px solid var(--line);
+      padding-left: 6px;
+    }
+
+    .card .chips {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+
+    .chip {
+      font-size: 9px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 1px 6px;
+      color: var(--muted);
+    }
+
+    .card .fb {
+      display: flex;
+      gap: 6px;
+      margin-top: 6px;
+    }
+
+    .card .fb .b {
+      flex: 1;
+      text-align: center;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      font-size: 12px;
+      padding: 3px;
+    }
+
+    .scroll-note {
+      font-size: 10px;
+      color: var(--line);
+      text-align: center;
+      margin-top: auto;
+      padding-top: 6px;
+    }
+
+    /* health dot */
+    .health {
+      position: absolute;
+      bottom: 16px;
+      right: 16px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 9px;
+      color: var(--muted);
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 2px 6px;
+    }
+
+    .health .g {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #7aa87a;
+    }
+
+    .health .r {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #c98;
+    }
+
+    /* S8：健康燈點下去從右下角往上展開的面板 */
+    .health-panel {
+      position: absolute;
+      bottom: 40px;
+      right: 16px;
+      width: 200px;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      box-shadow: 0 8px 20px rgba(0,0,0,.25);
+      padding: 10px;
+      font-size: 11px;
+    }
+
+    .health-panel::before {
+      content: "";
+      position: absolute;
+      bottom: -5px;
+      right: 14px;
+      width: 9px;
+      height: 9px;
+      background: #fff;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      transform: rotate(45deg);
+    }
+
+    .health-panel .grp {
+      border-top: 1px solid var(--line);
+      margin-top: 6px;
+      padding-top: 6px;
+    }
+
+    .health-panel .grp:first-child {
+      border-top: none;
+      margin-top: 0;
+      padding-top: 0;
+    }
+
+    .toast {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 10px;
+      font-size: 11px;
+      color: var(--ink);
+      margin: 6px 0;
+    }
+
+    .toast .h {
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    /* S7：跳出在原畫面上的錯誤/降級 popup */
+    .popup-overlay {
+      position: absolute;
+      left: 10px;
+      right: 10px;
+      top: 34px;
+      bottom: 10px;
+      background: rgba(0,0,0,.4);
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .popup-overlay .toast {
+      margin: 0;
+      width: 100%;
+      min-height: 108px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      box-shadow: 0 8px 20px rgba(0,0,0,.3);
+    }
+
+    .dimmed {
+      opacity: .45;
+    }
+
+    .install-tip {
+      border: 1px dashed var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      font-size: 11px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .share-ico {
+      font-size: 18px;
+    }
+
+    /* ---- section divider ---- */
+    .section-head {
+      max-width: 1200px;
+      margin: 20px auto 0;
+      padding: 24px 24px 0;
+      border-top: 1px solid #ddd;
+    }
+
+    .section-head h2 {
+      margin: 0 0 4px;
+      font-size: 20px;
+    }
+
+    .section-head p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    /* ---- browser (desktop) frame ---- */
+    .browser-wrap {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px 24px 40px;
+    }
+
+    .browser {
+      border: 2px solid var(--ink);
+      border-radius: 12px;
+      overflow: hidden;
+      background: #fff;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, .08);
+    }
+
+    .browser .bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: var(--fill);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .browser .bar .dots {
+      display: flex;
+      gap: 5px;
+    }
+
+    .browser .bar .dots i {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--line);
+      display: block;
+    }
+
+    .browser .bar .url {
+      flex: 1;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      font-size: 11px;
+      color: var(--muted);
+      padding: 3px 10px;
+    }
+
+    .browser .win {
+      padding: 0;
+    }
+
+    /* desktop app shell: max-width content, mobile-first widths preserved */
+    .d-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 24px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .d-topbar .brand {
+      font-weight: 800;
+      letter-spacing: 2px;
+      font-size: 16px;
+    }
+
+    .d-topbar .nav {
+      display: flex;
+      gap: 16px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .d-stage {
+      padding: 28px 24px;
+      background: #fbfbfb;
+    }
+
+    .d-center {
+      max-width: 520px;
+      margin: 0 auto;
+    }
+
+    /* mobile-width content, centered on web */
+
+    .d-two {
+      display: grid;
+      grid-template-columns: 1.1fr .9fr;
+      gap: 24px;
+      max-width: 960px;
+      margin: 0 auto;
+    }
+
+    .d-two .left {
+      position: sticky;
+      top: 0;
+    }
+
+    @media (max-width: 760px) {
+      .d-two {
+        grid-template-columns: 1fr;
+      }
+
+      .d-topbar .nav {
+        display: none;
+      }
+    }
+
+    footer.notes {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px 60px;
+      font-size: 13px;
+      color: #555;
+    }
+
+    footer.notes h2 {
+      font-size: 16px;
+      margin: 24px 0 8px;
+    }
+
+    footer.notes ul {
+      margin: 0;
+      padding-left: 20px;
+    }
+
+    footer.notes li {
+      margin: 4px 0;
+    }
+  </style>
+</head>
+
+<body>
+  <header class="page-head">
+    <h1>Museek 前端介面 Wireframe</h1>
+    <p>依《Museek 最終實作建議書 v3.1》整理 · 單頁 PWA · RWD（手機直式為主，向上相容網頁版）· 低保真線框</p>
+  </header>
+
+  <div class="legend">
+    灰塊＝文字／內容佔位 · 虛線框＝可視區 · 深色鈕＝主要動作 · <code>👍 / 👎</code>＝回饋 · 右下角綠燈＝內部健康檢查 ·
+    <span class="goto" style="display:inline; font-size:13px;">→ Sx</span>＝按下該鈕後導向的畫面
+  </div>
+  <div class="flow-map">
+    <b>整體流程</b>　S1 啟動 → S2 入口
+    　│─ 路徑一（貼歌單）→ S3 品味檔案 → S4 思考中
+    　└─ 路徑二（一句話）────────────→ S4 思考中
+    　　　　　　　　　　　　　S4 → S5 推薦結果 → S6 Why this song（點卡片展開）
+    　　　　　　　　　　　　　S7 錯誤/降級（分別跳在 S2/S4/S5 上）、S8 健康檢查 為視情況觸發的輔助畫面（非線性主流程）
+  </div>
+
+  <div class="grid">
+
+    <!-- 1 啟動 / PWA 安裝引導 -->
+    <div class="screen">
+      <p class="caption"><span class="tag">S1</span><span class="title">啟動 · PWA 安裝引導</span>
+        <span class="desc">掃 QR 進入 → 引導「加入主畫面」取得無網址列體驗（iOS 需手動）</span>
+      </p>
+      <div class="phone">
+        <div class="notch"></div>
+        <div class="viewport">
+          <div class="wf-logo">MUSEEK</div>
+          <div class="wf-sub">Seek Your Next Sound.</div>
+          <div class="box"
+            style="height:120px; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:11px;">
+            主視覺 / Loading</div>
+          <div class="install-tip" style="margin-top:14px;">
+            <div class="share-ico">⬆️</div>
+            點 Safari <b>分享</b> → <b>加入主畫面</b><br>取得全螢幕 App 體驗
+          </div>
+          <div class="btn ghost" style="margin-top:10px;">稍後再說，直接開始</div>
+          <div class="scroll-note">首次進入才顯示安裝引導</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2 入口 / 雙路徑 -->
+    <div class="screen">
+      <p class="caption"><span class="tag">S2</span><span class="title">入口 · 雙路徑選擇</span>
+        <span class="desc">路徑一：解析歌單 → S3 品味檔案 · 路徑二：一句話描述（沿用原情境輸入介面）→ 直接進 S4</span>
+      </p>
+      <div class="phone">
+        <div class="notch"></div>
+        <div class="viewport">
+          <div class="wf-logo" style="font-size:16px;">MUSEEK</div>
+          <div class="wf-sub">你的音樂探索夥伴</div>
+
+          <div class="label">① 貼上你的公開 YouTube 歌單</div>
+          <div class="input">https://youtube.com/playlist?list=…</div>
+          <div class="btn">解析歌單，建立品味檔案</div>
+
+          <div class="center" style="font-size:11px; color:var(--muted); margin:10px 0;">— 或 —</div>
+
+          <div class="label">② 沒有歌單？直接描述當下氛圍</div>
+          <div class="box" style="height:72px; padding:8px; font-size:11px; color:var(--muted);">下雨天開車想放空，但不要太吵…
+          </div>
+          <div class="row" style="margin-top:6px;">
+            <div class="chip">深夜開車</div>
+            <div class="chip">專注工作</div>
+            <div class="chip">運動</div>
+          </div>
+          <div class="btn" style="margin-top:8px;">開始探索 →</div>
+          <div class="scroll-note">私人歌單會即時提示</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3 Taste Profile -->
+    <div class="screen">
+      <p class="caption"><span class="tag">S3</span><span class="title">品味檔案「我讀到的你」</span>
+        <span class="desc">平均 energy／valence／曲風 + 歌單比對率（matched / unmatched）· 按鈕直接進 S4</span>
+      </p>
+      <div class="phone">
+        <div class="notch"></div>
+        <div class="viewport">
+          <div class="label">我讀到的你</div>
+          <div class="line l"></div>
+          <div class="line m"></div>
+
+          <div class="label" style="margin-top:12px;">音訊特徵（歌單平均）</div>
+          <div class="feat">
+            <div class="k"><span>energy</span><span>0.42</span></div>
+            <div class="track"><span style="width:42%"></span></div>
+          </div>
+          <div class="feat">
+            <div class="k"><span>valence</span><span>0.51</span></div>
+            <div class="track"><span style="width:51%"></span></div>
+          </div>
+          <div class="feat">
+            <div class="k"><span>danceability</span><span>0.55</span></div>
+            <div class="track"><span style="width:55%"></span></div>
+          </div>
+          <div class="feat">
+            <div class="k"><span>acousticness</span><span>0.38</span></div>
+            <div class="track"><span style="width:38%"></span></div>
+          </div>
+
+          <div class="label" style="margin-top:10px;">主要曲風</div>
+          <div class="row">
+            <div class="chip">Indie</div>
+            <div class="chip">City Pop</div>
+            <div class="chip">R&amp;B</div>
+          </div>
+
+          <div class="toast" style="margin-top:12px;">
+            <div class="h">比對結果</div>
+            共 48 首 · 已收錄 41 · 未收錄 7
+          </div>
+          <div class="btn">開始探索 →</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4 Agent 思考中 -->
+    <div class="screen">
+      <p class="caption"><span class="tag">S4</span><span class="title">Agent 思考中（SSE 串流）</span>
+        <span class="desc">即時顯示 parse → candidates → rank → verify 步驟</span>
+      </p>
+      <div class="phone">
+        <div class="notch"></div>
+        <div class="viewport">
+          <div class="box"
+            style="height:120px; margin-top:14px; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:11px;">
+            思考動畫 / 骨架佔位</div>
+
+          <div class="label">正在為你探索…</div>
+          <div class="step done"><span class="dot"></span>理解情境：低能量、放鬆、雨天</div>
+          <div class="step done"><span class="dot"></span>從 ReccoBeats 取得 42 首候選</div>
+          <div class="step run"><span class="dot"></span>依 Discovery Score 排序，取前 8 首驗證</div>
+          <div class="step wait"><span class="dot"></span>驗證 YouTube videoId（過濾幻覺）</div>
+          <div class="step wait"><span class="dot"></span>生成推薦理由</div>
+
+          <div class="scroll-note">「這些不是動畫，是真的在跑」</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5 推薦結果 -->
+    <div class="screen">
+      <p class="caption"><span class="tag">S5</span><span class="title">推薦結果 · 單一播放器 + 卡片清單</span>
+        <span class="desc">合規：單一 16:9 播放器、卡片試聽、理由在播放器外</span>
+      </p>
+      <div class="phone">
+        <div class="notch"></div>
+        <div class="viewport" style="padding:10px;">
+          <div class="health"><span class="g"></span>健康</div>
+          <div class="player">
+            <div class="play"></div>
+          </div>
+          <div class="line m" style="margin-top:8px;"></div>
+          <div class="line s"></div>
+
+          <div class="card">
+            <div class="top">
+              <div class="thumb"></div>
+              <div class="meta">
+                <div class="t"></div>
+                <div class="a"></div>
+              </div>
+              <div style="font-size:11px; color:var(--muted);">1</div>
+            </div>
+            <div class="why">energy 與你平常聽的幾乎一致，但原音比例高出許多，82 BPM 適合雨天放空。</div>
+            <div class="chips"><span class="chip">energy 0.45</span><span class="chip">valence 0.55</span><span
+                class="chip">tempo 82</span></div>
+            <div class="fb">
+              <div class="b">👍</div>
+              <div class="b">👎</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="top">
+              <div class="thumb"></div>
+              <div class="meta">
+                <div class="t"></div>
+                <div class="a"></div>
+              </div>
+              <div style="font-size:11px; color:var(--muted);">2</div>
+            </div>
+            <div class="why">相似度 0.82 的甜蜜點：有關聯也有驚喜。</div>
+            <div class="fb">
+              <div class="b">👍</div>
+              <div class="b">👎</div>
+            </div>
+          </div>
+          <div class="scroll-note">↓ 共 5 首 · 向下捲動</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 6 Why this song 展開 -->
+    <div class="screen">
+      <p class="caption"><span class="tag">S6</span><span class="title">Why this song? 展開</span>
+        <span class="desc">引用實際 audio features 數值對照，與你的品味比較</span>
+      </p>
+      <div class="phone">
+        <div class="notch"></div>
+        <div class="viewport">
+          <div class="card" style="margin-top:0;">
+            <div class="top">
+              <div class="thumb"></div>
+              <div class="meta">
+                <div class="t"></div>
+                <div class="a"></div>
+              </div>
+            </div>
+          </div>
+          <div class="label">Why this song?</div>
+          <div class="toast">energy 與你平常聽的幾乎一致，但原音比例高出許多，82 BPM 的緩速正適合雨天車行的放空感。</div>
+
+          <div class="label" style="margin-top:10px;">特徵對照（你 vs 這首）</div>
+          <div class="feat">
+            <div class="k"><span>energy</span><span>0.42 / 0.45</span></div>
+            <div class="track"><span style="width:45%"></span></div>
+          </div>
+          <div class="feat">
+            <div class="k"><span>valence</span><span>0.51 / 0.55</span></div>
+            <div class="track"><span style="width:55%"></span></div>
+          </div>
+          <div class="feat">
+            <div class="k"><span>acousticness</span><span>0.38 / 0.72</span></div>
+            <div class="track"><span style="width:72%"></span></div>
+          </div>
+
+          <div class="label" style="margin-top:10px;">Discovery Score</div>
+          <div class="chips"><span class="chip">similarity 0.74</span><span class="chip">novelty 0.62</span><span
+              class="chip">context_fit 0.88</span></div>
+
+          <div class="row" style="margin-top:12px;">
+            <div class="btn ghost sm">在 YouTube 開啟</div>
+            <div class="btn sm">加入我的歌單</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 7 錯誤 / 降級（直接顯示在觸發的原畫面上） -->
+    <div class="screen">
+      <p class="caption"><span class="tag">S7</span><span class="title">錯誤 / 降級 · 私人歌單（觸發於 S2）</span>
+        <span class="desc">情境：在 S2 貼上私人歌單 → 按下「解析歌單，建立品味檔案」→ 跳出提示</span>
+      </p>
+      <div class="phone">
+        <div class="notch"></div>
+        <div class="viewport">
+          <div class="dimmed">
+            <div class="wf-logo" style="font-size:16px;">MUSEEK</div>
+            <div class="wf-sub">你的音樂探索夥伴</div>
+            <div class="label">① 貼上你的公開 YouTube 歌單</div>
+            <div class="input">https://youtube.com/playlist?list=…（私人）</div>
+            <div class="btn">解析歌單，建立品味檔案</div>
+          </div>
+          <div class="popup-overlay">
+            <div class="toast">
+              <div class="h">⚠ 這份歌單目前是私人的</div>
+              請改為公開連結歌單。
+              <div class="row" style="margin-top:8px;">
+                <div class="btn sm">知道了</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 7b 錯誤 / 降級：特徵服務不穩（觸發於 S4） -->
+    <div class="screen">
+      <p class="caption"><span class="tag">S7</span><span class="title">錯誤 / 降級 · 特徵服務不穩（觸發於 S4）</span>
+        <span class="desc">情境：S4 思考中，ReccoBeats 特徵服務逾時 → 跳出降級提示，改用語意排序</span>
+      </p>
+      <div class="phone">
+        <div class="notch"></div>
+        <div class="viewport">
+          <div class="dimmed">
+            <div class="label">正在為你探索…</div>
+            <div class="step done"><span class="dot"></span>理解情境：低能量、放鬆、雨天</div>
+            <div class="step run"><span class="dot"></span>從 ReccoBeats 取得候選</div>
+            <div class="step wait"><span class="dot"></span>依 Discovery Score 排序</div>
+          </div>
+          <div class="popup-overlay">
+            <div class="toast">
+              <div class="h">ℹ 降級中</div>
+              特徵服務暫時不穩，本輪改用語意排序，理由以文字描述呈現。
+              <div class="row" style="margin-top:8px;">
+                <div class="btn sm">繼續</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 7c 錯誤 / 降級：配額保護（觸發於 S5） -->
+    <div class="screen">
+      <p class="caption"><span class="tag">S7</span><span class="title">錯誤 / 降級 · 配額保護（觸發於 S5）</span>
+        <span class="desc">情境：S5 瀏覽推薦結果時，當日配額即將用盡 → 跳出提示，改用快取曲目池</span>
+      </p>
+      <div class="phone">
+        <div class="notch"></div>
+        <div class="viewport" style="padding:10px;">
+          <div class="dimmed">
+            <div class="player">
+              <div class="play"></div>
+            </div>
+            <div class="line m" style="margin-top:8px;"></div>
+            <div class="line s"></div>
+            <div class="card">
+              <div class="top">
+                <div class="thumb"></div>
+                <div class="meta">
+                  <div class="t"></div>
+                  <div class="a"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="popup-overlay">
+            <div class="toast">
+              <div class="h">ℹ 配額保護</div>
+              目前僅使用快取曲目，仍可播放，曲目池較小。
+              <div class="row" style="margin-top:8px;">
+                <div class="btn sm">知道了</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 8 健康檢查角落 -->
+    <div class="screen">
+      <p class="caption"><span class="tag">S8</span><span class="title">健康檢查（內部用，觸發於右下角健康燈）</span>
+        <span class="desc">情境：在任一畫面點右下角 🟢 健康燈 → 從角落往上展開面板（/api/health）</span>
+      </p>
+      <div class="phone">
+        <div class="notch"></div>
+        <div class="viewport" style="padding:10px;">
+          <div class="dimmed">
+            <div class="player">
+              <div class="play"></div>
+            </div>
+            <div class="line m" style="margin-top:8px;"></div>
+            <div class="line s"></div>
+            <div class="card">
+              <div class="top">
+                <div class="thumb"></div>
+                <div class="meta">
+                  <div class="t"></div>
+                  <div class="a"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="health"><span class="g"></span>健康</div>
+          <div class="health-panel">
+            <div class="grp">
+              <div class="step done"><span class="dot"></span>YouTube　　　正常</div>
+              <div class="step done"><span class="dot"></span>ReccoBeats　正常</div>
+              <div class="step run"><span class="dot"></span>LLM Gateway　延遲</div>
+              <div class="step done"><span class="dot"></span>MongoDB　　　正常</div>
+            </div>
+            <div class="grp">配額<br>quota_used：2,400 / 10,000</div>
+            <div class="grp">本輪防護<br>returned 5 · dropped 3（幻覺／不可嵌入已攔截）</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="section-head">
+    <h2>網頁版（桑機 / 平板）— RWD 展開</h2>
+    <p>以手機直式為基礎；寬螢幕下內容不拉满，而是【居中定寬＋雙欄展開】，保持閱讀寬度一致</p>
+  </div>
+
+  <div class="browser-wrap">
+    <p class="caption" style="margin:0 0 8px;"><span class="tag">W1</span><span class="title">網頁版·入口（雙路徑）</span>
+      <span class="desc">入口 / 情境輸入類【單欄居中】，內容寬度與手機一致（max-width 約 520px）</span>
+    </p>
+    <div class="browser">
+      <div class="bar">
+        <div class="dots"><i></i><i></i><i></i></div>
+        <div class="url">https://museek.sit.example.com</div>
+      </div>
+      <div class="win">
+        <div class="d-topbar">
+          <div class="brand">MUSEEK</div>
+          <div class="nav"><span>探索</span><span>我的品味</span><span>關於</span></div>
+        </div>
+        <div class="d-stage">
+          <div class="d-center">
+            <div class="wf-logo" style="font-size:18px;">懂你音樂品味的 AI 探索夥伴</div>
+            <div class="wf-sub">Seek Your Next Sound.</div>
+            <div class="label">① 貼上你的公開 YouTube 歌單</div>
+            <div class="input">https://youtube.com/playlist?list=…</div>
+            <div class="btn">解析歌單，建立品味檔案</div>
+            <div class="center" style="font-size:11px; color:var(--muted); margin:10px 0;">— 或 —</div>
+            <div class="label">② 沒有歌單？直接描述當下氛圍</div>
+            <div class="box" style="height:64px; padding:8px; font-size:11px; color:var(--muted);">下雨天開車想放空，但不要太吵…</div>
+            <div class="row" style="margin-top:6px;">
+              <div class="chip">深夜開車</div>
+              <div class="chip">專注工作</div>
+              <div class="chip">運動</div>
+            </div>
+            <div class="btn" style="margin-top:8px;">開始探索 →</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <p class="caption" style="margin:20px 0 8px;"><span class="tag">W2</span><span class="title">網頁版·推薦結果（雙欄）</span>
+      <span class="desc">左：單一播放器＋Why（sticky）· 右：卡片清單。合規仍為單一播放器，點卡片切 videoId</span>
+    </p>
+    <div class="browser">
+      <div class="bar">
+        <div class="dots"><i></i><i></i><i></i></div>
+        <div class="url">https://museek.sit.example.com/explore</div>
+      </div>
+      <div class="win">
+        <div class="d-topbar">
+          <div class="brand">MUSEEK</div>
+          <div class="nav"><span class="health" style="position:static;"><span class="g"></span>健康 2,400/10,000</span>
+          </div>
+        </div>
+        <div class="d-stage">
+          <div class="d-two">
+            <div class="left">
+              <div class="player">
+                <div class="play"></div>
+              </div>
+              <div class="line m" style="margin-top:8px;"></div>
+              <div class="line s"></div>
+              <div class="label">Why this song?</div>
+              <div class="toast">energy 與你平常聽的幾乎一致，但原音比例高出許多，82 BPM 適合雨天放空。</div>
+              <div class="chips"><span class="chip">similarity 0.74</span><span class="chip">novelty 0.62</span><span
+                  class="chip">context_fit 0.88</span></div>
+            </div>
+            <div class="right">
+              <div class="label">今日推薦（5 首）</div>
+              <div class="card">
+                <div class="top">
+                  <div class="thumb"></div>
+                  <div class="meta">
+                    <div class="t"></div>
+                    <div class="a"></div>
+                  </div>
+                  <div style="font-size:11px; color:var(--muted);">1</div>
+                </div>
+                <div class="why">energy 與你平常聽的幾乎一致，82 BPM 適合雨天放空。</div>
+                <div class="chips"><span class="chip">energy 0.45</span><span class="chip">valence 0.55</span><span
+                    class="chip">tempo 82</span></div>
+                <div class="fb">
+                  <div class="b">👍</div>
+                  <div class="b">👎</div>
+                </div>
+              </div>
+              <div class="card">
+                <div class="top">
+                  <div class="thumb"></div>
+                  <div class="meta">
+                    <div class="t"></div>
+                    <div class="a"></div>
+                  </div>
+                  <div style="font-size:11px; color:var(--muted);">2</div>
+                </div>
+                <div class="why">相似度 0.82 的甜蜜點：有關聯也有驚喜。</div>
+                <div class="fb">
+                  <div class="b">👍</div>
+                  <div class="b">👎</div>
+                </div>
+              </div>
+              <div class="card">
+                <div class="top">
+                  <div class="thumb"></div>
+                  <div class="meta">
+                    <div class="t"></div>
+                    <div class="a"></div>
+                  </div>
+                  <div style="font-size:11px; color:var(--muted);">3</div>
+                </div>
+                <div class="fb">
+                  <div class="b">👍</div>
+                  <div class="b">👎</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="notes">
+    <h2>介面清單對照文件</h2>
+    <ul>
+      <li><b>S1 啟動 / PWA 安裝引導</b> — 使用者旅程 1.2①、PWA 合規 3.7（iOS 需手動加入主畫面、apple-touch-icon）</li>
+      <li><b>S2 入口 / 雙路徑選擇</b> — 旅程 1.2②、雙路徑輸入 2.5（路徑一貼歌單 → S3；路徑二一句話描述，沿用原情境輸入介面 → 直接進 S4）</li>
+      <li><b>S3 品味檔案「我讀到的你」</b> — 旅程 1.2③、API <code>/api/session</code> 回傳 profile / matched / unmatched，按鈕直接進 S4</li>
+      <li><b>S4 Agent 思考中</b> — 旅程 1.2⑤、SSE 串流 3.2（thinking 事件）</li>
+      <li><b>S5 推薦結果</b> — 旅程 1.2⑤⑥、播放器合規 3.7（單一播放器 + 卡片、理由在外部）、FR-8/9</li>
+      <li><b>S6 Why this song 展開</b> — 有根據的解釋（三支柱）、Discovery Score 3.5、track 事件欄位</li>
+      <li><b>S7 錯誤 / 降級</b> — 降級路徑 3.8：私人歌單（跳在 S2）、特徵服務降級（跳在 S4）、配額保護（跳在 S5），皆以原畫面淡化 + popup 呈現</li>
+      <li><b>S8 健康檢查</b> — <code>/api/health</code> 3.2、Demo 腳本 7.1（展示 dropped）、配額熔斷 4.2，點右下角健康燈從角落展開</li>
+    </ul>
+    <p style="color:var(--muted);">註：S1、S2、S8 為 P1 / 內部用途；S3–S7 為主要 P0 流程。回饋（👍👎）按下後 taste 條需即時變動並觸發 /api/rerank（3.6）。
+    </p>
+
+    <h2>RWD 策略（手機優先）</h2>
+    <ul>
+      <li><b>手機優先</b> — 以直式 375–430px 為基準設計並實作，桌機為漸進增強，非重畫。</li>
+      <li><b>斷點建議</b> — <code>&lt; 760px</code> 單欄（同手機）；<code>≥ 760px</code> 推薦頁改雙欄（左播放器＋Why
+        sticky、右卡片清單）；<code>≥ 1024px</code> 內容置中並限制最大寬度。</li>
+      <li><b>內容不拉滿</b> — 入口／情境／檔案等文字型畫面在桌機維持 <code>max-width ≈ 520px</code> 置中，避免長行破壞閱讀。</li>
+      <li><b>單一播放器不變</b> — 桌機雙欄仍是「一個播放器 + 點卡片切換 videoId」，維持 YouTube 合規（3.7），播放器維持 16:9、寬度 ≥ 480px。</li>
+      <li><b>觸控與滑鼠並存</b> — 卡片、👍👎 命中區在手機 ≥ 44px；桌機加上 hover 狀態，縮圖維持 ≥ 120×70px。</li>
+      <li><b>健康燈</b> — 手機在右下角浮標；桌機可移到頂部導覽列（W2 已示意）。</li>
+    </ul>
+  </footer>
+</body>
+
+</html>
