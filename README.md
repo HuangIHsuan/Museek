@@ -5,7 +5,7 @@ AI 音樂探索 Agent。規格見 `deck/Museek_系統開發文件.md`（以下�
 ## 現在跑得起來的東西
 
 整條流程端到端可跑，**不需要任何金鑰、不需要 Mongo、不會燒任何配額**：
-貼歌單 → 品味向量 → 自然語言情境 → Discovery 排序 → 驗證可播放 → SSE 串流 → 👍👎 重排。
+貼歌單（或單一首歌）→ 品味向量 → 自然語言情境 → Discovery 排序 → 驗證可播放 → SSE 串流 → 👍👎 重排。
 
 外部服務預設全部走 stub，因此在公司內網也跑得動（§1.1）。要接真實資料只需改 `.env`。
 
@@ -40,7 +40,8 @@ app/
     pipeline.py        把上面串成 session／recommend／feedback 三條流程
   services/
     youtube.py         playlistItems.list、search.list（無金鑰→stub）
-    reccobeats.py      search / audio-features / recommendation（失敗→stub）
+    reccobeats.py      search / audio-features / recommendation / 音訊分析（失敗→stub）
+    itunes.py          曲庫查不到時，抓 30 秒試聽片段餵給分析端點 ← 免金鑰
     llm.py             Intent Parser、Explainer，三通道可切換
     prompts.py         提示詞與 <user_data> 包裝 §10
     stub_data.py       可重現的假曲庫（雜湊決定特徵，同一首歌永遠同一組數字）
@@ -59,6 +60,26 @@ tests/                 55 個測試，全程 stub，不對外連線
 | `YOUTUBE_API_KEY` | 空 | **空 = stub，一點配額都不燒。§8 規定只有 D2 該填這格。** |
 | `RECCOBEATS_MODE` | `stub` | `auto` 打真的、失敗自動退 stub；`live` 只打真的 |
 | `LLM_CHANNEL` | `stub` | `stub` 規則式解析；`external` Anthropic API；`gateway` OpenAI 相容端點 |
+
+ReccoBeats 打真的時，曲庫第一趟查不到的歌（華語、獨立廠牌很常見）會走兩段補救：
+
+1. **別名回查**——曲庫是 Spotify 血統，茄子蛋在裡面叫 EggPlantEgg、
+   草東沒有派對叫 No Party For Cao Dong。用 iTunes 的中英對照再查一次曲庫，
+   多半查得到，而且拿到的是真的 `recco_id`，可以當推薦種子。
+2. **音訊分析**——曲庫真的沒有這首歌時，抓 iTunes 的 30 秒試聽片段丟進
+   ReccoBeats 的分析端點直接算特徵。拿不到 id，只補得了特徵。
+
+沒有這兩段，那些歌的品味向量會是一整排 0.00（NOTES #38、#39）。
+用 `RECCOBEATS_RECOVERY=false` 全關、`RECCOBEATS_ANALYSIS=false` 只關第 2 段，
+`RECOVERY_MAX_PER_SESSION` 調每次最多補救幾首。
+
+曲庫**連那位歌手都沒有**才算真的沒辦法；只是那首歌沒收的話，還有第三段：
+用分析出來的特徵，在同一位歌手的曲目裡挑最接近的一首當**代打種子**——
+推薦端點要的只是一顆曲目 id，種子不必是同一首歌（NOTES #40）。
+
+實測 7 首華語／獨立曲目：可用種子從 2 首變成 6 首；
+單曲入口貼一首曲庫沒收的歌（Luci Gang – HEADLOCK），
+也能靠代打種子撈到 43 首候選、跑完一輪推薦。
 
 目前本機 `.env` 的實際設定：YouTube **已啟用真實金鑰**、ReccoBeats 走 stub、
 LLM 走 `gateway` 指向地端 llm-host（vLLM / qwen3.8-27b），之後換 Azure OpenAI。
@@ -139,10 +160,12 @@ docker run -d --name museek-mongo -p 27017:27017 mirror.gcr.io/library/mongo:7
    使用者說「不要太吵」，第 4 首卻是 156 BPM。分級之後兩個需求都滿足：
    前段永遠不會出現違反情境的曲目，候選再少也交得出五首。
 
-3. **ReccoBeats 真實 API 尚未驗證**：本機網路連不到 `api.reccobeats.com`，
-   端點參數與回傳欄位是照文件推測寫的。**這仍是 Day 1 的 GO/NO-GO 風險項。**
-   真實格式若不同，只需改 `services/reccobeats.py` 的 `_parse_track` / `_parse_features` 兩個函式，
-   其餘模組不受影響。
+3. **ReccoBeats 推薦端點沒有「照著一支向量找相似曲目」的用法**：
+   `seeds` 是必填的曲目 id，少了直接 400；歌手 id 不算數；
+   實測 `energy`／`valence`／`acousticness`／`danceability` 這些參數送了沒有作用，
+   只有 `tempo` 真的會改變結果（NOTES #39）。所以品味向量只能用在自家的
+   Discovery Ranker 排序，取候選還是得靠曲目 id——這就是別名回查與代打種子存在的理由。
+   連那位歌手都找不到時，回一個 `no_seeds` 錯誤，不拿 stub 假曲庫充數（NOTES #40）。
 
 4. **前端的假曲風標籤已移除**：原型寫死「Indie / City Pop / R&B」，
    但後端沒有曲風資料。改成從歌單統計出的「常聽歌手」，是真的數字。
@@ -152,7 +175,7 @@ docker run -d --name museek-mongo -p 27017:27017 mirror.gcr.io/library/mongo:7
 
 ## 還沒做的
 
-- [ ] ReccoBeats 真實端點驗證（外網，Day 1 風險項）
+- [ ] 把已驗證有效的 `tempo` 參數接進推薦端點（NOTES #39 末段，候選池會更貼近情境）
 - [ ] YouTube API Key 申請與 `playlistItems.list` 實測（只能一個人做，§8）
 - [ ] 三組示範歌單策展 + `DEMO_PLAYLISTS` 替換（T）
 - [ ] 曲名正規化測資補到 100 筆真實樣本（T；目前 10 筆涵蓋華／英／日／韓）
@@ -164,7 +187,7 @@ docker run -d --name museek-mongo -p 27017:27017 mirror.gcr.io/library/mongo:7
 
 已在程式裡落實：`video_cache` TTL 30 天索引、Discovery Score 完全不使用 YouTube 資料、
 播放器無外框裝飾且可視區 ≥200×200、縮圖 ≥120×70、`playsinline=1`、
-未實作 OAuth、API Key 只在後端、歌單網址限 youtube.com／youtu.be、
+未實作 OAuth、API Key 只在後端、歌單／單曲網址限 youtube.com／youtu.be、
 外部文字以 `<user_data>` 包裝且中和內層偽造標籤、referrer 設為 `strict-origin-when-cross-origin`。
 
 尚待外部條件：全站 HTTPS（等部署）、備援影片、預熱、演練。

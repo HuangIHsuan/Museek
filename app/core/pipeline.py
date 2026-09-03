@@ -10,12 +10,12 @@ from typing import AsyncGenerator, Dict, List, Optional, Tuple
 
 from app.config import get_settings
 from app.core import profiler, ranker
-from app.core.normalize import cache_key, extract_playlist_id, split_artist_title
+from app.core.normalize import cache_key, name_key, parse_source, split_artist_title
 from app.core.quota import QuotaTracker
 from app.core.resolver import VideoResolver
 from app.db.repository import profile_expiry
 from app.models import Constraints, Score, TrackResult
-from app.services import llm, reccobeats, stub_data, youtube
+from app.services import itunes, llm, reccobeats, stub_data, youtube
 
 log = logging.getLogger("museek.pipeline")
 
@@ -26,8 +26,137 @@ class SessionNotFound(Exception):
 
 # --- 特徵取得（feature_cache 優先，非 YouTube 來源可長期保留）------------------
 
-async def _features_for(repo, artist: str, title: str) -> Optional[Dict]:
+class RecoveryBudget:
+    """一次請求最多補救幾首曲庫沒查到的歌。
+
+    別名回查約 1 秒，再加上音訊分析約 3 秒。50 首都沒中的歌單若不設上限，
+    /api/session 會卡上好幾分鐘——寧可少幾首有特徵，也不能讓使用者盯著轉圈。
+    """
+
+    def __init__(self, limit: int) -> None:
+        self.left = max(0, limit)
+        self.used = 0
+
+    def take(self) -> bool:
+        if self.left <= 0:
+            return False
+        self.left -= 1
+        self.used += 1
+        return True
+
+
+def _unique(values: List[str]) -> List[str]:
+    """保序去重。別名常常跟原本的寫法一樣，重複送出去只是白白多一趟請求。"""
+    out, seen = [], set()
+    for value in values:
+        key = name_key(value or "")
+        if key and key not in seen:
+            seen.add(key)
+            out.append(value)
+    return out
+
+
+# 代打種子最多從歌手的前幾首挑，一次批次查特徵就夠（超過 40 個 id 要拆多趟）
+PROXY_POOL = 40
+
+
+async def _proxy_seed(artist_names: List[str], features: Dict[str, float]) -> Optional[str]:
+    """那首歌不在曲庫時的代打種子：同一位歌手、特徵最接近的那一首（NOTES #40）。
+
+    推薦端點只吃曲目 id，但**種子不必是同一首歌**。曲庫沒收 HEADLOCK，
+    Luci Gang 本人卻有 77 首——用分析出來的特徵挑最近的那首，
+    候選池就落在對的鄰居裡，剩下的交給 Discovery Ranker 用真的品味向量排。
+    """
+    if not features:
+        return None
+    tracks = [t for t in await reccobeats.artist_catalog(artist_names) if t.get("recco_id")]
+    if not tracks:
+        return None
+    tracks = tracks[:PROXY_POOL]
+
+    found = await reccobeats.get_audio_features([t["recco_id"] for t in tracks])
+    best, best_score = None, -1.0
+    for track in tracks:
+        candidate = found.get(track["recco_id"])
+        if not candidate:
+            continue
+        score = ranker.similarity(features, candidate)
+        if score > best_score:
+            best, best_score = track, score
+    if not best:
+        return None
+    log.info("代打種子：%s（相似度 %.3f，原曲不在曲庫）", best["title"], best_score)
+    return best["recco_id"]
+
+
+async def _recover_via_itunes(artist: str, title: str, have_id: Optional[str],
+                              budget: Optional[RecoveryBudget]
+                              ) -> Tuple[Optional[str], Optional[str], Dict[str, float], str]:
+    """曲庫第一趟沒查到時的補救，回傳 (recco_id, seed_id, features, source)。
+
+    先用 iTunes 認出這首歌，那一趟同時給我們兩樣東西（NOTES #39）：
+
+      1. **各商店的寫法**——曲庫是 Spotify 血統，茄子蛋在裡面叫 EggPlantEgg。
+         帶著別名回頭查曲庫，多半查得到，而且拿到的是真的 recco_id，
+         可以當推薦種子（分析出來的特徵沒有 id，當不了種子）。
+      2. **30 秒試聽片段**——曲庫真的沒有這首歌時，丟進分析端點直接算特徵。
+
+    順序不能反：有 recco_id 的那條路同時解決特徵與種子，分析只解決特徵。
+    """
+    settings = get_settings()
+    if not settings.reccobeats_recovery:
+        return have_id, None, {}, "reccobeats"
+    if budget is not None and not budget.take():
+        log.info("曲庫補救額度已用盡，略過 %s - %s", artist, title)
+        return have_id, None, {}, "reccobeats"
+
+    match = await itunes.lookup_track(artist, title)
+    if not match:
+        log.info("iTunes 找不到這首歌：%s - %s", artist, title)
+        return have_id, None, {}, "reccobeats"
+
+    # 1) 帶著別名回頭查曲庫
+    titles = _unique([title, *match.titles])
+    names = _unique([*match.artist_names, artist])
+    recco_id = have_id
+    if not recco_id:
+        for alias_title in titles:
+            recco_id = await reccobeats.search_track(artist, alias_title,
+                                                     artist_aliases=match.artist_names)
+            if recco_id:
+                break
+    if not recco_id:
+        # 曲名搜尋有 3 字下限、又受翻譯影響；歌手曲目清單兩者都不受限
+        recco_id = await reccobeats.search_track_via_artist(names, titles)
+    if recco_id:
+        features = (await reccobeats.get_audio_features([recco_id])).get(recco_id)
+        if features:
+            log.info("靠 iTunes 別名在曲庫找到：%s - %s（%s）",
+                     artist, title, "／".join(match.artist_names))
+            return recco_id, None, features, "reccobeats"
+
+    # 2) 曲庫真的沒有（或有曲目卻沒有特徵）：分析試聽片段
+    if not settings.reccobeats_analysis or not match.preview_url:
+        return recco_id, None, {}, "reccobeats"
+    audio = await itunes.fetch_preview(match.preview_url)
+    if not audio:
+        return recco_id, None, {}, "reccobeats"
+    features = await reccobeats.extract_audio_features(audio)
+    if not features:
+        return recco_id, None, {}, "reccobeats"
+    log.info("音訊分析補上特徵：%s - %s（iTunes %s 商店）", artist, title, match.store)
+
+    # 3) 分析出來的曲目沒有 id，當不了種子——同一位歌手挑一首特徵最近的代打
+    seed_id = None if recco_id else await _proxy_seed(names, features)
+    return recco_id, seed_id, features, "analysis"
+
+
+async def _features_for(repo, artist: str, title: str,
+                        budget: Optional[RecoveryBudget] = None) -> Optional[Dict]:
     """取得單曲特徵。feature_cache 優先，未命中才對外查。
+
+    對外查有兩條路：先查 ReccoBeats 曲庫，查不到才用試聽片段做音訊分析。
+    兩者的特徵是同一個尺度，可以混在同一支向量裡（NOTES #38）。
 
     快取項目會標記來源。從 stub 切到真實模式時，**舊的 stub 假特徵絕對不能再取用**——
     否則真實模式會端出一整份看起來正常、實際上是雜湊亂數的品味向量（NOTES #35）。
@@ -40,8 +169,9 @@ async def _features_for(repo, artist: str, title: str) -> Optional[Dict]:
         # 沒有 source 的是早期寫入的項目，一律當成 stub 看待
         source = row.get("source") or ("stub" if str(row.get("recco_id", "")).startswith("stub-") else "reccobeats")
         if stub_mode or source != "stub":
-            return {"recco_id": row.get("recco_id"), "features": row.get("features") or {},
-                    "popularity": row.get("popularity")}
+            return {"recco_id": row.get("recco_id"), "seed_id": row.get("seed_id"),
+                    "features": row.get("features") or {},
+                    "popularity": row.get("popularity"), "source": source}
 
     if stub_mode:
         payload = {
@@ -54,60 +184,105 @@ async def _features_for(repo, artist: str, title: str) -> Optional[Dict]:
         return payload
 
     recco_id = await reccobeats.search_track(artist, title)
-    if not recco_id:
-        return None
-    features = (await reccobeats.get_audio_features([recco_id])).get(recco_id)
+    # 曲庫有這首歌但沒有特徵時也要走補救，recco_id 仍然留著當推薦種子
+    features = (await reccobeats.get_audio_features([recco_id])).get(recco_id) if recco_id else None
+    source, seed_id = "reccobeats", None
     if not features:
-        return None
-    payload = {"recco_id": recco_id, "features": features,
-               "popularity": None, "source": "reccobeats"}
+        recco_id, seed_id, features, source = await _recover_via_itunes(
+            artist, title, recco_id, budget
+        )
+    if not features:
+        if not (recco_id or seed_id):
+            return None
+        # 特徵補不上、但曲庫裡認得這首歌：id 還是能當推薦種子。
+        # 這裡回 None 的話連種子都會一起丟掉，單曲入口就完全沒得推薦了。
+        # 不寫進快取——特徵下次可能補得上，記下來反而擋住重試。
+        log.info("查不到音訊特徵，但保留推薦種子：%s - %s", artist, title)
+        return {"recco_id": recco_id, "seed_id": seed_id, "features": {},
+                "popularity": None, "source": source}
+    payload = {"recco_id": recco_id, "seed_id": seed_id, "features": features,
+               "popularity": None, "source": source}
     await repo.set_features(key, payload)
     return payload
 
 
 # --- /api/session ------------------------------------------------------------
 
-async def create_session(repo, quota: QuotaTracker, playlist_url: str) -> Dict:
+async def _fetch_items(quota: QuotaTracker, kind: str, source_id: str) -> List[Dict]:
+    """讀取歌單或單曲的曲目清單，兩者都走金鑰輪替：一把耗盡就換下一把。"""
     settings = get_settings()
-    playlist_id = extract_playlist_id(playlist_url)
+    fetch = youtube.fetch_playlist_items if kind == "playlist" else youtube.fetch_video_items
+    cost = (settings.quota_cost_playlist_items if kind == "playlist"
+            else settings.quota_cost_videos)
 
-    # 歌單讀取也走輪替：一把耗盡就換下一把。stub 模式沒有金鑰，直接呼叫。
+    # stub 模式沒有金鑰，直接呼叫。
     if not youtube.is_live():
-        items = await youtube.fetch_playlist_items(playlist_id)
-    else:
-        items, used_key = None, None
-        while items is None:
-            used_key = await quota.active_key()
-            if used_key is None:
-                raise youtube.QuotaExceeded("所有 YouTube 金鑰的當日配額都已用盡")
-            try:
-                items = await youtube.fetch_playlist_items(playlist_id, api_key=used_key)
-            except youtube.QuotaExceeded:
-                await quota.mark_exhausted(used_key)
-        await quota.spend(settings.quota_cost_playlist_items, key=used_key)
+        return await fetch(source_id)
 
+    items, used_key = None, None
+    while items is None:
+        used_key = await quota.active_key()
+        if used_key is None:
+            raise youtube.QuotaExceeded("所有 YouTube 金鑰的當日配額都已用盡")
+        try:
+            items = await fetch(source_id, api_key=used_key)
+        except youtube.QuotaExceeded:
+            await quota.mark_exhausted(used_key)
+    await quota.spend(cost, key=used_key)
+    return items
+
+
+async def create_session(repo, quota: QuotaTracker, playlist_url: str) -> Dict:
+    source = parse_source(playlist_url)
+    kind, source_id = source.kind, source.id
+
+    try:
+        items = await _fetch_items(quota, kind, source_id)
+    except youtube.PlaylistNotAccessible:
+        # 「watch?v=...&list=...」的歌單可能是私人或已刪除，
+        # 讀不到就退回那一首歌，不要讓使用者卡在錯誤畫面。
+        if kind != "playlist" or not source.video_id:
+            raise
+        log.info("歌單 %s 讀不到，改以單曲 %s 建立品味", source_id, source.video_id)
+        kind, source_id = "video", source.video_id
+        items = await _fetch_items(quota, kind, source_id)
+
+    budget = RecoveryBudget(get_settings().recovery_max_per_session)
     tracks: List[Dict] = []
     for item in items:
         artist, title = split_artist_title(item.get("raw_title", ""), item.get("channel"))
         if not title:
             continue
-        enriched = await _features_for(repo, artist, title)
+        enriched = await _features_for(repo, artist, title, budget)
         tracks.append({
             "raw_title": item.get("raw_title", ""),
             "artist": artist,
             "title": title,
             "recco_id": (enriched or {}).get("recco_id"),
+            "seed_id": (enriched or {}).get("seed_id"),
             "features": (enriched or {}).get("features") or {},
             "popularity": (enriched or {}).get("popularity"),
-            "matched": bool(enriched),
+            "source": (enriched or {}).get("source"),
+            # 有 id 沒特徵的那種只能當種子，不能算進品味向量
+            "matched": bool((enriched or {}).get("features")),
         })
 
     vector, popularity_mean, seen_artists, matched, unmatched, warning = profiler.build_profile(tracks)
+    analyzed = sum(1 for t in tracks if t.get("source") == "analysis")
+    if warning and kind == "video":
+        # 單曲入口只有一首歌，「歌單有較多曲目未收錄」的說法會讓人一頭霧水。
+        # 有沒有種子是兩種不同的處境：有種子還推得動，沒有就真的無從推薦。
+        if any(t.get("recco_id") or t.get("seed_id") for t in tracks):
+            warning = "這首歌查不到音訊特徵，推薦會以曲庫裡最接近的同名曲目為種子，並更依賴你描述的氛圍。"
+        else:
+            warning = ("這首歌在 ReccoBeats 曲庫與 iTunes 都查不到，沒有音訊特徵也沒有推薦種子。"
+                       "換一首在串流平台上找得到的歌，或改貼整份歌單會更準。")
     session_id = uuid.uuid4().hex
 
     await repo.save_profile({
         "session_id": session_id,
-        "playlist_id": playlist_id,
+        "playlist_id": source_id,
+        "source_kind": kind,
         "tracks": tracks,
         "vector": vector,
         "popularity_mean": popularity_mean,
@@ -126,6 +301,8 @@ async def create_session(repo, quota: QuotaTracker, playlist_url: str) -> Dict:
                     "top_artists": _top_artists(tracks)},
         "matched": matched,
         "unmatched": unmatched,
+        # 其中幾首的特徵是靠試聽片段分析出來的，不是曲庫查到的——這件事要看得見
+        "analyzed": analyzed,
     }
 
 
@@ -148,7 +325,19 @@ async def recommend_stream(repo, quota: QuotaTracker, session_id: str, prompt: s
     yield "thinking", {"step": "parse", "label": f"理解情境：{_intent_label(intent_raw)}"}
 
     # 2) 取得候選
-    seeds = [t["recco_id"] for t in profile.get("tracks", []) if t.get("recco_id")][:5]
+    # 曲庫沒收的那幾首用代打種子（同一位歌手、特徵最接近的那首）遞補
+    seeds = [t.get("recco_id") or t.get("seed_id")
+             for t in profile.get("tracks", [])
+             if t.get("recco_id") or t.get("seed_id")][:5]
+    if not seeds and get_settings().reccobeats_mode != "stub":
+        # 推薦端點沒有「照著這支向量找相似曲目」的用法，seeds 是必填的曲目 id。
+        # 一首都對不上就真的沒得推薦——這裡照實說，不拿假曲庫充數（NOTES #39）。
+        yield "error", {
+            "code": "no_seeds",
+            "message": "這份歌單的曲目、連同這些歌手，在 ReccoBeats 曲庫裡都找不到，"
+                       "沒有推薦種子可用。換一份包含較多國際發行曲目的歌單再試一次。",
+        }
+        return
     candidates = await reccobeats.get_recommendations(seeds, limit=50)
     candidates = await _fill_missing_features(repo, candidates)
     heard = {cache_key(t.get("artist", ""), t.get("title", "")) for t in profile.get("tracks", [])}
@@ -275,6 +464,7 @@ async def feedback_stream(repo, quota: QuotaTracker, session_id: str, video_id: 
 # --- 小工具 ------------------------------------------------------------------
 
 async def _fill_missing_features(repo, candidates: List[Dict]) -> List[Dict]:
+    budget = RecoveryBudget(get_settings().recovery_max_per_session)
     filled = []
     for candidate in candidates:
         if candidate.get("features"):
@@ -286,7 +476,7 @@ async def _fill_missing_features(repo, candidates: List[Dict]) -> List[Dict]:
                 )
             filled.append(candidate)
             continue
-        enriched = await _features_for(repo, candidate.get("artist", ""), candidate.get("title", ""))
+        enriched = await _features_for(repo, candidate.get("artist", ""), candidate.get("title", ""), budget)
         if enriched:
             candidate = {**candidate, **enriched}
             filled.append(candidate)

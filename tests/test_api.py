@@ -51,6 +51,24 @@ async def test_session_returns_profile_and_match_counts(client):
     assert all(0 <= v <= 1 for k, v in data["profile"]["vector"].items() if k != "tempo")
 
 
+async def test_session_accepts_single_video_url(client):
+    response = await client.post("/api/session",
+                                 json={"playlist_url": "https://youtu.be/IwxkGdhkAGU"})
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["session_id"]
+    assert data["matched"] + data["unmatched"] == 1
+
+
+async def test_session_falls_back_to_video_when_mix_playlist(client):
+    # watch?v=...&list=RD... 是自動混音清單，讀不到歌單也要能用單曲建立品味
+    response = await client.post("/api/session", json={
+        "playlist_url": "https://www.youtube.com/watch?v=IwxkGdhkAGU&list=RDIwxkGdhkAGU"
+    })
+    assert response.status_code == 200, response.text
+    assert response.json()["matched"] + response.json()["unmatched"] == 1
+
+
 async def test_session_rejects_non_youtube_url(client):
     response = await client.post("/api/session", json={"playlist_url": "https://example.com/list?list=PL1"})
     assert response.status_code == 400

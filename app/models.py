@@ -74,6 +74,8 @@ class SessionResponse(BaseModel):
     profile: ProfilePayload
     matched: int
     unmatched: int
+    # matched 之中有幾首的特徵是靠 30 秒試聽片段分析出來的（曲庫查不到）
+    analyzed: int = 0
 
 
 class RecommendRequest(BaseModel):

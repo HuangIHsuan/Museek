@@ -42,7 +42,7 @@ async def _stream(source: AsyncGenerator[Tuple[str, Dict], None]) -> AsyncGenera
         async for event, payload in source:
             yield _sse(event, payload)
     except pipeline.SessionNotFound:
-        yield _sse("error", {"code": "session_not_found", "message": "這個工作階段已過期，請重新解析歌單。"})
+        yield _sse("error", {"code": "session_not_found", "message": "這個工作階段已過期，請重新解析連結。"})
     except youtube.QuotaExceeded:
         yield _sse("error", {"code": "quota_exceeded",
                              "message": "今天的 YouTube 查詢額度已用完，改用快取中的曲目再試一次。"})
@@ -71,7 +71,7 @@ async def create_session(payload: SessionRequest, request: Request) -> SessionRe
     except youtube.PlaylistNotAccessible as error:
         raise HTTPException(404, detail={
             "code": "playlist_not_accessible",
-            "message": "這份歌單讀不到——可能是私人的、已刪除，或網址不完整。"
+            "message": "這個連結讀不到——歌單或影片可能是私人的、已刪除，或網址不完整。"
                        "改為公開，或試試示範歌單。",
             "hint": DEMO_PLAYLISTS,
         }) from error

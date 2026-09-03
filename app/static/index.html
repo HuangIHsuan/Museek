@@ -197,7 +197,7 @@
           <div>
             <div class="eyebrow">AI Music Discovery</div>
             <h1>Seek Your <em>Next Sound.</em></h1>
-            <p class="lede">貼上公開歌單，或描述此刻的氛圍。Museek 理解你的音樂品味，探索屬於你的下一個聲音。</p>
+            <p class="lede">貼上公開歌單或一首歌，或描述此刻的氛圍。Museek 理解你的音樂品味，探索屬於你的下一個聲音。</p>
             <div class="actions">
               <button class="button primary" data-go="entry">開始體驗</button>
               <button class="button ghost" id="demo-button">我的品味</button>
@@ -217,10 +217,10 @@
             <h2>你想聽什麼？</h2>
             <p class="sub">從熟悉的品味出發，保留一點意外。</p>
             <div class="field-group">
-              <label for="playlist">公開 YouTube 歌單</label>
-              <input id="playlist" type="url" inputmode="url" placeholder="https://youtube.com/playlist?list=..." autocomplete="url">
-              <div class="field-help" id="playlist-help">我們會分析最多 50 首歌曲。</div>
-              <button class="button primary full" type="button" id="playlist-submit">解析歌單</button>
+              <label for="playlist">公開 YouTube 歌單或單曲</label>
+              <input id="playlist" type="url" inputmode="url" placeholder="貼上歌單或單曲連結，例如 https://youtu.be/..." autocomplete="url">
+              <div class="field-help" id="playlist-help">歌單最多分析 50 首；也可以只貼一首歌，就以它當起點。</div>
+              <button class="button primary full" type="button" id="playlist-submit">解析連結</button>
             </div>
             <div class="divider">或</div>
             <div class="field-group">
@@ -241,7 +241,7 @@
         <div class="center-stage">
           <div class="panel profile-panel">
             <h2>我讀到的你</h2>
-            <p class="sub" id="profile-summary">先解析歌單，建立你的品味輪廓。</p>
+            <p class="sub" id="profile-summary">先解析歌單或單曲，建立你的品味輪廓。</p>
             <div class="profile-grid" id="profile-grid"></div>
             <div class="genre-title">常聽歌手</div>
             <div class="genres" id="top-artists"></div>
@@ -310,7 +310,7 @@
     // 後端已上線；要回到離線刻版把這裡改回 true 即可。
     const MOCK_MODE = false;
     const state = { sessionId:null, profile:null, previousProfile:null, topArtists:[],
-                    matched:0, unmatched:0, tracks:[], selected:null, lastRound:null };
+                    matched:0, unmatched:0, analyzed:0, tracks:[], selected:null, lastRound:null };
     const $ = id => document.getElementById(id);
     const views = [...document.querySelectorAll(".view")];
     const mockTracks = [
@@ -428,15 +428,16 @@
         state.topArtists = data.profile.top_artists || [];
         state.matched = data.matched;
         state.unmatched = data.unmatched;
+        state.analyzed = data.analyzed || 0;
         renderProfile(data.profile.warning);
         showView("profile");
       } catch (error) {
         $("playlist-help").textContent = errorMessage(error);
         $("playlist-help").classList.add("error-text");
-        showDialog("無法解析歌單", errorMessage(error), error?.hint);
+        showDialog("無法解析連結", errorMessage(error), error?.hint);
       } finally {
         button.disabled = false;
-        button.textContent = "解析歌單";
+        button.textContent = "解析連結";
       }
 
       async function mockSession(playlistUrl) {
@@ -451,7 +452,8 @@
             warning:null
           },
           matched:41,
-          unmatched:7
+          unmatched:7,
+          analyzed:5
         };
       }
     }
@@ -465,7 +467,10 @@
       }).join("");
       const total = state.matched + state.unmatched;
       $("profile-summary").textContent = `來自 ${total} 首歌的品味輪廓`;
-      $("match-note").textContent = warning || `已收錄 ${state.matched} 首，未收錄 ${state.unmatched} 首。`;
+      // 曲庫查不到、改用試聽片段分析出來的那幾首要講清楚，數字才站得住腳
+      const analyzedNote = state.analyzed ? `（其中 ${state.analyzed} 首是分析音訊得到的）` : "";
+      $("match-note").textContent =
+        warning || `已收錄 ${state.matched} 首${analyzedNote}，未收錄 ${state.unmatched} 首。`;
       renderTopArtists();
       renderTasteStrip();
     }
@@ -657,7 +662,7 @@
       const go = event.target.closest("[data-go]");
       if (go) {
         const target = go.dataset.go;
-        if (target === "profile" && !state.profile) return showDialog("還沒有品味檔案", "先解析一份公開歌單。");
+        if (target === "profile" && !state.profile) return showDialog("還沒有品味檔案", "先解析一份公開歌單，或一首歌。");
         showView(target);
       }
       const track = event.target.closest(".track");
@@ -681,7 +686,7 @@
     }));
     $("playlist-submit").addEventListener("click", () => {
       const value = $("playlist").value.trim();
-      if (!value) return showDialog("缺少歌單連結", "請貼上公開 YouTube 歌單連結。");
+      if (!value) return showDialog("缺少連結", "請貼上公開的 YouTube 歌單或單曲連結。");
       createSession(value);
     });
     $("mood-submit").addEventListener("click", () => recommend($("mood").value));

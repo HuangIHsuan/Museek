@@ -26,6 +26,22 @@ class Settings(BaseSettings):
     # ReccoBeats 是公開 API、不需要金鑰，因此預設就打真的。
     # auto 在連不上時會自動退 stub，所以離線也不會壞——但要知道那時拿到的是假特徵。
     reccobeats_mode: Literal["auto", "stub", "live"] = "auto"
+    # 曲庫第一趟查不到時的補救（NOTES #38、#39）。關掉的話那些歌完全沒有特徵，
+    # 品味向量會出現一整排 0.00。補救分兩段，各有一個開關：
+    #   1. 別名回查——用 iTunes 的中英對照再查一次曲庫，拿得到真的 recco_id
+    #      （＝推薦種子），成本約 1 秒
+    #   2. 音訊分析——曲庫真的沒有這首歌時，抓 30 秒試聽片段直接算特徵，
+    #      拿不到 id，成本約 3 秒
+    reccobeats_recovery: bool = True
+    reccobeats_analysis: bool = True
+    # 試聽片段與別名來源：iTunes 公開搜尋 API，免金鑰。依序試這幾個商店，
+    # TW 在前是因為華語曲名在美國商店只查得到羅馬拼音（甚至意譯）版本。
+    itunes_base_url: str = "https://itunes.apple.com"
+    itunes_countries: str = "TW,US"
+    # 一次 session 最多補救幾首。50 首全沒中的歌單若不設上限，
+    # /api/session 會卡好幾分鐘。
+    recovery_max_per_session: int = 12
+    analysis_timeout: float = 20.0       # 下載與分析都比 JSON 請求慢，不能用 http_timeout
 
     # --- LLM 通道（開發文件 §1.2）---
     # external = 外部 LLM API（選項 A，建議）
@@ -76,6 +92,7 @@ class Settings(BaseSettings):
     quota_circuit_breaker: int = 8_000   # 超過此值切「僅用快取」模式
     quota_cost_search: int = 100
     quota_cost_playlist_items: int = 1
+    quota_cost_videos: int = 1       # 單曲入口：videos.list 同樣 1 點
     verify_per_round: int = 8            # 單輪最多驗證 8 首（Top 5 + 3 備位）
     return_per_round: int = 5
 
@@ -103,6 +120,17 @@ class Settings(BaseSettings):
                 seen.add(key)
                 keys.append(key)
         return keys
+
+    @property
+    def itunes_stores(self) -> List[str]:
+        """要依序搜尋的 iTunes 商店代碼，保序去重。"""
+        stores, seen = [], set()
+        for part in (self.itunes_countries or "").split(","):
+            code = part.strip().upper()
+            if code and code not in seen:
+                seen.add(code)
+                stores.append(code)
+        return stores or ["US"]
 
     @property
     def llm_ready(self) -> bool:

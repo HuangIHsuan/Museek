@@ -20,7 +20,7 @@ API_BASE = "https://www.googleapis.com/youtube/v3"
 
 
 class PlaylistNotAccessible(Exception):
-    """私人／不存在／空歌單。"""
+    """私人／不存在／空的歌單或影片。"""
 
 
 class QuotaExceeded(Exception):
@@ -92,6 +92,42 @@ async def fetch_playlist_items(playlist_id: str, api_key: Optional[str] = None) 
     return items
 
 
+async def fetch_video_items(video_id: str, api_key: Optional[str] = None) -> List[Dict]:
+    """單曲版的 fetch_playlist_items：videos.list 只花 1 點，回傳同樣的 [{raw_title,...}]。
+
+    讀不到（私人／已刪除／年齡限制下架）就拋 PlaylistNotAccessible，錯誤處理與歌單共用。
+    """
+    if not is_live():
+        return _stub_video(video_id)
+
+    settings = get_settings()
+    api_key = api_key or settings.youtube_keys[0]
+    try:
+        data = await get_json(
+            f"{API_BASE}/videos",
+            params={"part": "snippet", "id": video_id, "key": api_key},
+        )
+    except httpx.HTTPStatusError as error:
+        if _quota_error(error):
+            raise QuotaExceeded("YouTube 每日配額已用盡") from error
+        if error.response is not None and error.response.status_code in (400, 403, 404):
+            raise PlaylistNotAccessible(video_id) from error
+        raise
+
+    # videos.list 對讀不到的影片是回空 items，不是 404
+    for entry in data.get("items", []):
+        snippet = entry.get("snippet") or {}
+        title = snippet.get("title") or ""
+        if not title:
+            continue
+        return [{
+            "raw_title": title,
+            "channel": snippet.get("channelTitle") or "",
+            "video_id": entry.get("id") or video_id,
+        }]
+    raise PlaylistNotAccessible(video_id)
+
+
 async def search_video(artist: str, title: str, api_key: Optional[str] = None) -> Optional[Dict]:
     """search.list(type=video, videoEmbeddable=true, videoCategoryId=10, maxResults=3)。
 
@@ -156,6 +192,18 @@ def _stub_playlist(playlist_id: str) -> List[Dict]:
             "video_id": stub_data.stub_video_id(entry["artist"], entry["title"]),
         })
     return rows
+
+
+def _stub_video(video_id: str) -> List[Dict]:
+    if "private" in video_id.lower():
+        raise PlaylistNotAccessible(video_id)
+    catalog = stub_data.stub_catalog()
+    entry = catalog[sum(ord(c) for c in video_id) % len(catalog)]
+    return [{
+        "raw_title": f"{entry['artist']} - {entry['title']} (Official Audio)",
+        "channel": f"{entry['artist']} - Topic",
+        "video_id": video_id,
+    }]
 
 
 def _stub_search(artist: str, title: str) -> Optional[Dict]:
