@@ -14,7 +14,9 @@ class Settings(BaseSettings):
     youtube_api_key: Optional[str] = None
     reccobeats_base_url: str = "https://api.reccobeats.com"
     # auto = 先打真的、失敗自動退 stub；stub = 完全不對外（內網開發用）；live = 只打真的
-    reccobeats_mode: Literal["auto", "stub", "live"] = "stub"
+    # ReccoBeats 是公開 API、不需要金鑰，因此預設就打真的。
+    # auto 在連不上時會自動退 stub，所以離線也不會壞——但要知道那時拿到的是假特徵。
+    reccobeats_mode: Literal["auto", "stub", "live"] = "auto"
 
     # --- LLM 通道（開發文件 §1.2）---
     # external = 外部 LLM API（選項 A，建議）
