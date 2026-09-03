@@ -210,7 +210,9 @@ async def get_repository():
         return _repo
 
     if settings.storage_backend == "memory" or not settings.mongo_url:
-        log.info("MONGO_URL 為空，直接使用記憶體儲存。")
+        reason = ("STORAGE_BACKEND=memory" if settings.storage_backend == "memory"
+                  else "MONGO_URL 為空")
+        log.info("使用記憶體儲存（%s）。快取會落檔到 data/cache.json。", reason)
         _repo = MemoryRepository()
         return _repo
     try:

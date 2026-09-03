@@ -25,6 +25,7 @@ class ResolveReport:
     searches: int = 0
     cache_hits: int = 0
     cache_only: bool = False    # 是否處於熔斷（僅用快取）模式
+    key_switches: int = 0       # 本輪因配額耗盡換了幾次金鑰
 
 
 class VideoResolver:
@@ -71,17 +72,30 @@ class VideoResolver:
                 report.cache_only = True
                 continue
 
-            try:
+            found, spent_key = None, None
+            if not youtube.is_live():
                 found = await youtube.search_video(artist, title)
-            except youtube.QuotaExceeded:
-                log.warning("YouTube 回報配額耗盡，本輪切換為僅用快取")
-                report.cache_only = True
-                continue
+            else:
+                # 設定多把金鑰時，一把回報耗盡就換下一把重試；全部耗盡才熔斷。
+                while True:
+                    spent_key = await self._quota.active_key()
+                    if spent_key is None:
+                        report.cache_only = True
+                        break
+                    try:
+                        found = await youtube.search_video(artist, title, api_key=spent_key)
+                        break
+                    except youtube.QuotaExceeded:
+                        await self._quota.mark_exhausted(spent_key)
+                        report.key_switches += 1
+                        continue
+                if report.cache_only:
+                    continue
 
             report.searches += 1
             if youtube.is_live():
                 report.quota_spent += settings.quota_cost_search
-                await self._quota.spend(settings.quota_cost_search)
+                await self._quota.spend(settings.quota_cost_search, key=spent_key)
 
             if not found or not found.get("embeddable", True):
                 # 搜尋不到／不可嵌入 → 丟棄並補下一名，使用者完全無感

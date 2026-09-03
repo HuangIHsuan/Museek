@@ -71,9 +71,20 @@ async def create_session(repo, quota: QuotaTracker, playlist_url: str) -> Dict:
     settings = get_settings()
     playlist_id = extract_playlist_id(playlist_url)
 
-    items = await youtube.fetch_playlist_items(playlist_id)
-    if youtube.is_live():
-        await quota.spend(settings.quota_cost_playlist_items)
+    # 歌單讀取也走輪替：一把耗盡就換下一把。stub 模式沒有金鑰，直接呼叫。
+    if not youtube.is_live():
+        items = await youtube.fetch_playlist_items(playlist_id)
+    else:
+        items, used_key = None, None
+        while items is None:
+            used_key = await quota.active_key()
+            if used_key is None:
+                raise youtube.QuotaExceeded("所有 YouTube 金鑰的當日配額都已用盡")
+            try:
+                items = await youtube.fetch_playlist_items(playlist_id, api_key=used_key)
+            except youtube.QuotaExceeded:
+                await quota.mark_exhausted(used_key)
+        await quota.spend(settings.quota_cost_playlist_items, key=used_key)
 
     tracks: List[Dict] = []
     for item in items:

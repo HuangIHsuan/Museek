@@ -93,9 +93,12 @@ class HealthResponse(BaseModel):
     llm: str
     mongo: str          # 前端契約沿用這個欄位名，實際後端看 storage
     storage: str = "memory"
-    quota_used: int
-    quota_limit: int
+    quota_used: int          # 所有金鑰的當日用量總和
+    quota_limit: int         # 所有金鑰的當日上限總和
     cache_only: bool
+    # 多金鑰輪替時的每把明細（NOTES #37）。單金鑰時只有一筆。
+    quota_keys: List[Dict[str, Any]] = Field(default_factory=list)
+    active_key: int = 0      # 目前用第幾把（從 1 開始），全部用盡為 0
 
 
 class ErrorDetail(BaseModel):

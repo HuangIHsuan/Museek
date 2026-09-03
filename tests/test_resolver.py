@@ -9,7 +9,9 @@ import pytest
 
 from app.config import get_settings
 from app.core.normalize import cache_key
-from app.core.quota import QuotaTracker, pacific_day
+from app.core.quota import QuotaTracker, key_id, pacific_day
+
+TEST_KEY = "test-key-never-real"   # 與 conftest 的 YOUTUBE_API_KEY 一致
 from app.core.resolver import VideoResolver
 from app.db.repository import MemoryRepository
 from app.services import youtube
@@ -28,6 +30,11 @@ def live_youtube(monkeypatch):
 def candidates(count: int):
     return [{"artist": f"Artist {i}", "title": f"Song {i}", "features": {}, "popularity": 50}
             for i in range(count)]
+
+
+async def seed_quota(repo, used: int, key: str = TEST_KEY) -> None:
+    """灌入某把金鑰的當日用量。文件 id 是「日期#金鑰指紋」，每把各記各的。"""
+    await repo.add_quota_used(f"{pacific_day()}#{key_id(key)}", used)
 
 
 async def test_cache_hits_cost_nothing(monkeypatch):
@@ -51,7 +58,7 @@ async def test_cache_hits_cost_nothing(monkeypatch):
 
 async def test_unfindable_candidates_are_dropped_and_backfilled(monkeypatch):
     """查不到的候選丟掉並補下一名，使用者拿到的仍是五首（防幻覺機制）。"""
-    async def search(artist, title):
+    async def search(artist, title, api_key=None):
         return None if title in ("Song 0", "Song 2") else {
             "video_id": f"vid-{title}", "title": title, "channel": artist,
             "thumbnail": "", "embeddable": True,
@@ -67,7 +74,7 @@ async def test_unfindable_candidates_are_dropped_and_backfilled(monkeypatch):
 
 
 async def test_unembeddable_results_are_dropped(monkeypatch):
-    async def search(artist, title):
+    async def search(artist, title, api_key=None):
         return {"video_id": "v", "title": title, "channel": artist,
                 "thumbnail": "", "embeddable": title != "Song 1"}
 
@@ -80,7 +87,7 @@ async def test_unembeddable_results_are_dropped(monkeypatch):
 async def test_a_dropped_candidate_is_remembered_so_we_never_pay_twice(monkeypatch):
     calls = []
 
-    async def search(artist, title):
+    async def search(artist, title, api_key=None):
         calls.append(title)
         return None
 
@@ -93,7 +100,7 @@ async def test_a_dropped_candidate_is_remembered_so_we_never_pay_twice(monkeypat
 
 
 async def test_searches_are_capped_per_round(monkeypatch):
-    async def search(artist, title):
+    async def search(artist, title, api_key=None):
         return None  # 全部查不到，逼它一路往下找
 
     monkeypatch.setattr(youtube, "search_video", search)
@@ -111,7 +118,7 @@ async def test_circuit_breaker_switches_to_cache_only(monkeypatch):
 
     monkeypatch.setattr(youtube, "search_video", fail)
     repo = MemoryRepository(persist=False)
-    await repo.add_quota_used(pacific_day(), 8000)
+    await seed_quota(repo, 8000)
     await repo.set_video(cache_key("Artist 3", "Song 3"),
                          {"video_id": "cached", "title": "Song 3", "channel": "Artist 3",
                           "thumbnail": "", "embeddable": True})
@@ -126,7 +133,7 @@ async def test_circuit_breaker_switches_to_cache_only(monkeypatch):
 async def test_quota_exceeded_from_youtube_stops_further_searches(monkeypatch):
     calls = []
 
-    async def search(artist, title):
+    async def search(artist, title, api_key=None):
         calls.append(title)
         raise youtube.QuotaExceeded("quota")
 
@@ -142,7 +149,7 @@ async def test_quota_exceeded_from_youtube_stops_further_searches(monkeypatch):
 async def test_resolver_stops_once_it_has_enough(monkeypatch):
     calls = []
 
-    async def search(artist, title):
+    async def search(artist, title, api_key=None):
         calls.append(title)
         return {"video_id": f"vid-{title}", "title": title, "channel": artist,
                 "thumbnail": "", "embeddable": True}

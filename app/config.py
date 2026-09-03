@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -12,6 +12,15 @@ class Settings(BaseSettings):
 
     # --- 外部服務金鑰（沒填就自動走 stub，內網開發用） ---
     youtube_api_key: Optional[str] = None
+    # 多把金鑰輪替（逗號分隔）。一把的當日配額用盡就換下一把。
+    #
+    # ⚠️ 這是刻意加入的、跨多個 GCP 專案取用配額的機制。Google 的 API 條款
+    #    將此視為規避配額，可能導致相關金鑰一併被撤銷——包含清單裡每一把、
+    #    以及它們所屬的專案。使用前請確認每把金鑰的擁有者都知情並同意。
+    #    詳見 NOTES.md #37。
+    #
+    # 設了這一項就會取代 YOUTUBE_API_KEY。留空則維持單金鑰行為。
+    youtube_api_keys: str = ""
     reccobeats_base_url: str = "https://api.reccobeats.com"
     # auto = 先打真的、失敗自動退 stub；stub = 完全不對外（內網開發用）；live = 只打真的
     # ReccoBeats 是公開 API、不需要金鑰，因此預設就打真的。
@@ -63,7 +72,7 @@ class Settings(BaseSettings):
     allow_memory_fallback: bool = True
 
     # --- 配額控管（開發文件 §8）---
-    quota_daily_limit: int = 10_000
+    quota_daily_limit: int = 10_000          # 每把金鑰各自的每日上限
     quota_circuit_breaker: int = 8_000   # 超過此值切「僅用快取」模式
     quota_cost_search: int = 100
     quota_cost_playlist_items: int = 1
@@ -82,6 +91,18 @@ class Settings(BaseSettings):
     # --- 其他 ---
     http_timeout: float = 4.0            # ReccoBeats 逾時 4s，重試 1 次
     log_dir: str = "logs"
+
+    @property
+    def youtube_keys(self) -> List[str]:
+        """實際可用的金鑰清單，保序去重。空清單代表走 stub。"""
+        raw = self.youtube_api_keys or self.youtube_api_key or ""
+        keys, seen = [], set()
+        for part in raw.split(","):
+            key = part.strip()
+            if key and key not in seen:
+                seen.add(key)
+                keys.append(key)
+        return keys
 
     @property
     def llm_ready(self) -> bool:

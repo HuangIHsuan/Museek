@@ -28,7 +28,7 @@ class QuotaExceeded(Exception):
 
 
 def is_live() -> bool:
-    return bool(get_settings().youtube_api_key)
+    return bool(get_settings().youtube_keys)
 
 
 def status() -> str:
@@ -45,12 +45,16 @@ def _quota_error(error: httpx.HTTPStatusError) -> bool:
     return bool(reasons & {"quotaExceeded", "dailyLimitExceeded", "rateLimitExceeded"})
 
 
-async def fetch_playlist_items(playlist_id: str) -> List[Dict]:
-    """回傳 [{raw_title, channel, video_id}]，最多 50 筆。私人／不存在歌單拋 PlaylistNotAccessible。"""
+async def fetch_playlist_items(playlist_id: str, api_key: Optional[str] = None) -> List[Dict]:
+    """回傳 [{raw_title, channel, video_id}]，最多 50 筆。私人／不存在歌單拋 PlaylistNotAccessible。
+
+    api_key 由呼叫端（QuotaTracker）指定；沒給就用清單裡第一把。
+    """
     if not is_live():
         return _stub_playlist(playlist_id)
 
     settings = get_settings()
+    api_key = api_key or settings.youtube_keys[0]
     try:
         data = await get_json(
             f"{API_BASE}/playlistItems",
@@ -58,7 +62,7 @@ async def fetch_playlist_items(playlist_id: str) -> List[Dict]:
                 "part": "snippet",
                 "playlistId": playlist_id,
                 "maxResults": 50,
-                "key": settings.youtube_api_key,
+                "key": api_key,
             },
         )
     except httpx.HTTPStatusError as error:
@@ -88,7 +92,7 @@ async def fetch_playlist_items(playlist_id: str) -> List[Dict]:
     return items
 
 
-async def search_video(artist: str, title: str) -> Optional[Dict]:
+async def search_video(artist: str, title: str, api_key: Optional[str] = None) -> Optional[Dict]:
     """search.list(type=video, videoEmbeddable=true, videoCategoryId=10, maxResults=3)。
 
     回傳 {video_id, title, channel, thumbnail, embeddable} 或 None；配額耗盡拋 QuotaExceeded。
@@ -98,6 +102,7 @@ async def search_video(artist: str, title: str) -> Optional[Dict]:
         return _stub_search(artist, title)
 
     settings = get_settings()
+    api_key = api_key or settings.youtube_keys[0]
     try:
         data = await get_json(
             f"{API_BASE}/search",
@@ -108,7 +113,7 @@ async def search_video(artist: str, title: str) -> Optional[Dict]:
                 "videoEmbeddable": "true",
                 "videoCategoryId": "10",   # Music
                 "maxResults": 3,
-                "key": settings.youtube_api_key,
+                "key": api_key,
             },
             retries=0,  # 100 點一次，不重試
         )

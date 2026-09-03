@@ -114,8 +114,10 @@ async def health(request: Request) -> HealthResponse:
         mongo=("ok" if storage_ok else "down") if repo.kind != "memory" else "memory",
         storage=repo.kind,
         quota_used=await quota.used(),
-        quota_limit=settings.quota_daily_limit,
+        quota_limit=await quota.limit(),
         cache_only=await quota.cache_only(),
+        quota_keys=await quota.breakdown(),
+        active_key=await quota.active_index(),
     )
 
 
