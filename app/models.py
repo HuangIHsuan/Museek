@@ -79,7 +79,9 @@ class SessionResponse(BaseModel):
 
 
 class RecommendRequest(BaseModel):
-    session_id: str
+    # 沒有 session_id 就是「只給情境」的入口：後端讀出氛圍、自己建一個工作階段，
+    # 並在第一首歌之前用 session 事件把 id 交還前端（回饋要用）。
+    session_id: Optional[str] = None
     prompt: str
 
 
@@ -106,4 +108,3 @@ class HealthResponse(BaseModel):
 class ErrorDetail(BaseModel):
     code: str
     message: str
-    hint: Optional[Any] = None

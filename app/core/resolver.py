@@ -26,6 +26,7 @@ class ResolveReport:
     cache_hits: int = 0
     cache_only: bool = False    # 是否處於熔斷（僅用快取）模式
     key_switches: int = 0       # 本輪因配額耗盡換了幾次金鑰
+    search_down: bool = False   # search.list 本輪打不通（服務故障／配額耗盡）
 
 
 class VideoResolver:
@@ -73,24 +74,33 @@ class VideoResolver:
                 continue
 
             found, spent_key = None, None
-            if not youtube.is_live():
-                found = await youtube.search_video(artist, title)
-            else:
-                # 設定多把金鑰時，一把回報耗盡就換下一把重試；全部耗盡才熔斷。
-                while True:
-                    spent_key = await self._quota.active_key()
-                    if spent_key is None:
-                        report.cache_only = True
-                        break
-                    try:
-                        found = await youtube.search_video(artist, title, api_key=spent_key)
-                        break
-                    except youtube.QuotaExceeded:
-                        await self._quota.mark_exhausted(spent_key)
-                        report.key_switches += 1
+            try:
+                if not youtube.is_live():
+                    found = await youtube.search_video(artist, title)
+                else:
+                    # 設定多把金鑰時，一把回報耗盡就換下一把重試；全部耗盡才熔斷。
+                    while True:
+                        spent_key = await self._quota.active_key()
+                        if spent_key is None:
+                            report.cache_only = True
+                            break
+                        try:
+                            found = await youtube.search_video(artist, title, api_key=spent_key)
+                            break
+                        except youtube.QuotaExceeded:
+                            await self._quota.mark_exhausted(spent_key)
+                            report.key_switches += 1
+                            continue
+                    if report.cache_only:
                         continue
-                if report.cache_only:
-                    continue
+            except youtube.SearchUnavailable as error:
+                # 服務打不通不是「這首歌沒有影片」：不記快取、不算丟棄、不扣配額。
+                # 本輪之後只用快取——同一個故障不會因為多試幾首就好起來，
+                # 但已經快取過的候選還是要繼續湊，這樣使用者至少拿得到幾首。
+                log.warning("search.list 本輪停用，改為僅用快取：%s", error)
+                report.search_down = True
+                report.cache_only = True
+                continue
 
             report.searches += 1
             if youtube.is_live():

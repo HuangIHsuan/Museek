@@ -96,9 +96,19 @@ class Settings(BaseSettings):
     verify_per_round: int = 8            # 單輪最多驗證 8 首（Top 5 + 3 備位）
     return_per_round: int = 5
 
+    # --- 亞洲比重（NOTES #46）---
+    # ReccoBeats 的推薦端點實測下來幾乎不看種子，回來的候選是全球長尾的隨機切片，
+    # 亞洲發行只佔 3.9%。所以「多推一點亞洲」換種子是換不出來的，只能自己補進候選池。
+    # 補幾首其實控不住比重（實測 6／10／15 首的結果都落在同一區間），
+    # 真正在控比重的是下面那組名額——上下限都要有，只有下限表達不出一個比例。
+    asia_candidates: int = 12        # 每輪從種子池補幾首亞洲候選進候選池（0 = 不補）
+    asia_min_per_round: int = 2      # 每輪端出去的五首裡至少幾首亞洲（0 = 不保留名額）
+    asia_max_per_round: int = 2      # 至多幾首（-1 = 不設上限）
+    seed_asia_min: int = 3           # 五顆種子裡至少幾顆亞洲（LLM 起點歌手與備援池共用）
+
     # --- Discovery Ranker 參數（Day 5 調校用）---
-    band_center: float = 0.72
-    band_width: float = 0.12
+    band_center: float = 0.88
+    band_width: float = 0.08
     weight_band: float = 0.45
     weight_context: float = 0.30
     weight_novelty: float = 0.25

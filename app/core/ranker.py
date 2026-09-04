@@ -47,6 +47,46 @@ def similarity(user_vector: Dict[str, float], candidate: Dict[str, float]) -> fl
     return max(0.0, 1.0 - math.sqrt(numerator / denominator))
 
 
+# 沒有歌單可平均時，這支向量代表「這個情境典型的那一首」長什麼樣。
+# 值本身只有中性意義，真正的形狀由 LLM 的 target 與 Intent 的上下限決定。
+NEUTRAL_TARGET = {"energy": 0.5, "valence": 0.5, "danceability": 0.5,
+                  "acousticness": 0.4, "instrumentalness": 0.2, "tempo": 100.0}
+
+TEMPO_BOUNDS = (40.0, 220.0)
+
+
+def _clamp(value: float, low: float, high: float) -> float:
+    return min(high, max(low, value))
+
+
+def target_vector(base: Optional[Dict[str, float]], constraints: Constraints) -> Dict[str, float]:
+    """把「氛圍中心值」收進 Intent 的上下限內，當成沒有歌單時的品味向量。
+
+    兩者若不一致，band 會把分數推向 hard filter 等一下要砍掉的那一區——
+    使用者說「不要太吵」而中心值卻是 0.8 時，前段會排滿隨後被判違規的歌。
+    因此上下限一律優先：中心值只在限制沒講到的地方作數。
+    """
+    vector = {**NEUTRAL_TARGET, **{k: float(v) for k, v in (base or {}).items()
+                                   if isinstance(v, (int, float))}}
+    bounds = {
+        "energy": (constraints.energy_min, constraints.energy_max),
+        "valence": (constraints.valence_min, constraints.valence_max),
+        "acousticness": (constraints.acousticness_min, constraints.acousticness_max),
+    }
+    for key, (low, high) in bounds.items():
+        if low is None and high is None:
+            continue
+        vector[key] = _clamp(vector[key], low if low is not None else 0.0,
+                             high if high is not None else 1.0)
+    if constraints.tempo_range:
+        vector["tempo"] = _clamp(vector["tempo"], constraints.tempo_range[0], constraints.tempo_range[1])
+
+    for key in FEATURE_KEYS:
+        low, high = TEMPO_BOUNDS if key == "tempo" else (0.0, 1.0)
+        vector[key] = round(_clamp(float(vector.get(key, NEUTRAL_TARGET[key])), low, high), 4)
+    return vector
+
+
 def band(sim: float, center: float = 0.72, width: float = 0.12) -> float:
     """§5.2 探索帶。分母的 2 是高斯函數定義的一部分，寫死；center／width 供 Day 5 調校。"""
     return math.exp(-((sim - center) ** 2) / (2 * width ** 2))
@@ -178,6 +218,66 @@ def rank(
     if not failing:
         return scored(passing), False
     return scored(passing) + scored(failing), graded
+
+
+def region_quota(
+    ranked: List[Dict],
+    constraints: Constraints,
+    is_target,
+    floor: int,
+    cap: int,
+    window: int,
+) -> Tuple[List[Dict], int]:
+    """把前 window 名裡符合 is_target 的數量夾在 [floor, cap]，回傳 (重排後清單, 實際數量)。
+
+    **為什麼要有上限。** 候選池裡自己補進來的那一份是挑過的、而且是照著探索帶
+    的帶心挑的；推薦端點回來的則是全球長尾的隨機切片（NOTES #46）。挑過的
+    對上隨機的，分數幾乎一面倒——實測補 6 首、10 首、15 首，前五名的亞洲佔比
+    都落在 50～65%，補多補少根本看不出差別。也就是說「補幾首」這個旋鈕
+    控不住比重，只有名額本身控得住。使用者要的是「多一點」，不是「幾乎全部」，
+    所以下限與上限都要在——只有下限的機制沒辦法表達一個比例。
+
+    兩條紀律，少一條這個機制就會變成「為了配額端出不該端的歌」：
+
+      1. **只在同一層裡對調。** 層＝有沒有通過硬過濾。違反「不要太吵」的候選
+         不會因為它是亞洲的就被拉到前面，反之亦然——§5.4 的分級優先於地區名額。
+      2. **讓位的一定是同層裡分數最低的那一個**，補上來的一定是同層裡分數最高的。
+         名額只動最邊緣的位子，前段的排序仍然是分數說了算。
+    """
+    if window <= 0 or not ranked:
+        return ranked, 0
+
+    def tier(candidate: Dict) -> bool:
+        return passes_hard_filter(constraints, candidate.get("features") or {})
+
+    def order(candidate: Dict):
+        return (tier(candidate), candidate["score"].final)
+
+    head, tail = list(ranked[:window]), list(ranked[window:])
+
+    def swap(wanted_in_head: bool) -> bool:
+        """把 head 裡一個 is_target==(not wanted) 的換成 tail 裡一個 is_target==wanted 的。"""
+        for item in sorted([c for c in tail if is_target(c) == wanted_in_head],
+                           key=order, reverse=True):
+            victims = [c for c in head
+                       if is_target(c) != wanted_in_head and tier(c) == tier(item)]
+            if not victims:
+                continue
+            victim = min(victims, key=lambda c: c["score"].final)
+            head[head.index(victim)] = item
+            tail[tail.index(item)] = victim
+            return True
+        return False
+
+    have = sum(1 for candidate in head if is_target(candidate))
+    while have < floor and swap(True):
+        have += 1
+    while cap >= 0 and have > cap and swap(False):
+        have -= 1
+
+    head.sort(key=order, reverse=True)
+    tail.sort(key=order, reverse=True)
+    return head + tail, have
 
 
 # --- §5.5 回饋更新 ---------------------------------------------------------

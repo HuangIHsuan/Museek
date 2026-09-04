@@ -69,6 +69,8 @@ def _parse_track(payload: Dict) -> Dict:
         "recco_id": payload.get("id") or "",
         "artist": artist,
         "title": payload.get("trackTitle") or payload.get("name") or "",
+        # ISRC 前兩碼是發行登記國，是候選池裡唯一現成的地區訊號（core/regions）
+        "isrc": payload.get("isrc") or "",
         "features": {},          # 搜尋與推薦端點都不含特徵，要另外查
         "popularity": None,      # ReccoBeats 沒有這個欄位
     }

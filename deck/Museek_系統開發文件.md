@@ -125,7 +125,6 @@
 
 - 蒐集 100 個真實 YouTube 曲名（含華語、韓語、英語、日語），整理雜訊模式表
 - 曲名正規化測資（輸入／預期輸出對照）
-- 三組示範歌單策展（各 30–50 首，需先確認 ReccoBeats 查得到）
 - Day 5–6 預熱腳本執行與配額監控
 - Day 6–7 邊界測試：私人歌單、非音樂歌單、空歌單、配額熔斷
 
@@ -179,8 +178,14 @@ async def search_video(artist: str, title: str) -> dict | None:
 async def parse_intent(user_text: str) -> dict:
     """回傳 Intent JSON（見 3.3）"""
 
-async def explain(user_vector: dict, candidate: dict, context: str) -> str:
-    """回傳 60 字內繁體中文理由"""
+async def analyze_vibe(user_text: str) -> dict:
+    """回傳 Vibe JSON（見 3.4）。沒有歌單時的品味來源"""
+
+async def explain(user_vector: dict, candidate: dict, context: str,
+                  *, mood_only: bool = False) -> str:
+    """回傳 60 字內繁體中文理由
+       mood_only=True 代表使用者沒給歌單，向量是推出來的目標值——
+       理由不得出現「你常聽的」「你的歌單」"""
 ```
 
 ### 3.2 推薦結果 JSON（前端契約，凍結）
@@ -219,6 +224,28 @@ async def explain(user_vector: dict, candidate: dict, context: str) -> str:
 
 無法判斷的欄位省略或給 `null`，不臆測。
 
+### 3.4 Vibe JSON
+
+使用者沒有給歌單時，品味向量無從平均，推薦種子也無處可取。Vibe Analyzer 補的就是這兩件事。
+
+```json
+{
+  "vibe": "潮濕安靜的夜路，情緒往內收",
+  "target": { "energy": 0.32, "valence": 0.38, "danceability": 0.45,
+              "acousticness": 0.55, "tempo": 92 },
+  "seed_artists": ["Bon Iver", "Cigarettes After Sex", "Khruangbin"]
+}
+```
+
+- `vibe`：20 字以內，直接顯示在結果頁，讓使用者看得到模型讀到了什麼。
+- `target`：**中心值**，不是上下限。每個欄位都要給數字；上下限由 Intent JSON 負責，
+  兩者衝突時以 Intent 為準（否則排序前段會排滿隨後被硬過濾砍掉的歌）。
+- `seed_artists`：3～5 位，只用來在曲庫裡找出發點，不保證出現在推薦結果裡。
+
+LLM 不可用時退回規則式：`vibe` 與 `target` 由關鍵字推得，
+`seed_artists` 一律是空的——歌手名是知識，不是規則，硬編一份清單會讓所有人的情境
+都推到同幾首歌。
+
 ---
 
 ## 4　API 端點規格
@@ -227,14 +254,49 @@ async def explain(user_vector: dict, candidate: dict, context: str) -> str:
 |---|---|---|---|---|
 | `/api/session` | POST | `{ playlist_url }` | `{ session_id, profile, matched, unmatched }` | 1 點 |
 | `/api/recommend` | POST (SSE) | `{ session_id, prompt }` | event 串流：`thinking` → `track` → `done` | 100 × N |
+| `/api/recommend`（情境入口） | POST (SSE) | `{ prompt }` | 同上，另在最前面補一個 `session` 事件 | 100 × N |
 | `/api/feedback` | POST (SSE) | `{ session_id, video_id, vote }` | `{ updated_profile }` + 重排後 Top 5 | ≈0 |
 | `/api/health` | GET | — | `{ youtube, reccobeats, llm, mongo, quota_used }` | 0 |
 
 > **`/api/rerank` 已併入 `/api/feedback`**（範圍縮減決定，見 §7）。
 
+### 情境入口（`session_id` 省略）
+
+使用者只描述情境、不給歌單時，`session_id` 省略即可。後端會：
+
+1. 並行呼叫 Intent Parser 與 Vibe Analyzer（§3.3、§3.4），讀出情境的限制與氛圍；
+2. 把氛圍的中心值收進 Intent 的上下限，當成這一輪的品味向量（上下限優先，
+   兩者衝突時以使用者說的為準）；
+3. 向 Vibe Analyzer 給的起點歌手各要一首最貼近氛圍的曲目，湊成推薦種子
+   （一位都沒對上就退到備援種子池，見下）；
+4. 建立工作階段並用 `session` 事件把 id 交還前端——👍👎 要用，所以一定排在第一首歌之前。
+
+之後的候選、排序、驗證、理由與歌單入口完全共用。
+
+**備援種子池。** 模型答得出歌手、曲庫卻沒收（或模型降級根本沒給）時，
+退到 `services/seed_pool.py` 的人工清單。這份清單的挑選標準是**特徵空間的覆蓋率**，
+不是「什麼氛圍配什麼歌手」——安靜↔吵、陰鬱↔明亮、原音↔電子、慢↔快每個方向都要有人守著，
+實際挑哪幾首由目標向量的距離決定，前 12 名之內隨機取 5 首（純取 Top 5 會讓所有人的
+同一種情境拿到同五首歌）。`scripts/verify_vibe_seeds.py` 會把清單解析成
+`data/vibe_seeds.json`，之後零 API 呼叫且每首都保證查得到。
+
+`session` 與 `done` 事件都帶 `seed_source`：
+
+| 值 | 意思 |
+|---|---|
+| `vibe` | 用模型給的起點歌手 |
+| `fallback` | 退到備援種子池——前端會明說，起點不能被安靜換掉 |
+| `none` | 連備援都解不出來（多半是 ReccoBeats 連不上），回 `error` / `no_seeds` |
+
+任何情況都不拿假曲庫充數。
+
 ### SSE 事件格式
 
 ```
+event: session
+data: {"session_id":"…","vibe":"潮濕安靜的夜路，情緒往內收",
+       "vector":{…},"seed_artists":["Bon Iver","Khruangbin"]}   ← 只有情境入口才有
+
 event: thinking
 data: {"step":"parse","label":"理解情境：低能量、放鬆、雨天"}
 
@@ -430,7 +492,7 @@ db.taste_profiles.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 })
 | YouTube 配額耗盡 | 攔截 403 讀 reason | 只回傳快取內已有 videoId 的候選 | 仍可播放，曲目池較小 |
 | 搜尋不到／不可嵌入 | `search.list` 回空或 `embeddable=false` | 丟棄並補下一名候選 | 完全無感（防幻覺機制生效） |
 | LLM 回傳非合法 JSON | `json.loads` 失敗 | 重試 1 次要求「只輸出 JSON」；仍失敗走預設限制 | 延遲略增，結果照常 |
-| 歌單為私人 | `playlistItems.list` 回 404／403 | 立刻提示 + 三組示範歌單 | 「這份歌單目前是私人的，改為公開或試試示範歌單」 |
+| 歌單為私人 | `playlistItems.list` 回 404／403 | 立刻提示請對方換連結 | 「這個連結讀不到，請改為公開連結，或換一份歌單／一首歌再試」 |
 
 ---
 
@@ -480,8 +542,8 @@ db.taste_profiles.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 })
 
 | Day | D1（內網） | D2（外網） | P | T |
 |---|---|---|---|---|
-| **2** | Ingestor 邏輯、正規化 regex、MongoDB collection + TTL | ReccoBeats 串接、歌單讀取串接 | Ranker 骨架 + 單元測試 | 正規化測資交付、示範歌單策展 |
-| **3** | Taste Profiler、SSE 機制、端點骨架 | 前端 UI 刻版（mock 資料） | Ranker 完成、交付 D1 整合 | 示範歌單 ReccoBeats 覆蓋率驗證 |
+| **2** | Ingestor 邏輯、正規化 regex、MongoDB collection + TTL | ReccoBeats 串接、歌單讀取串接 | Ranker 骨架 + 單元測試 | 正規化測資交付 |
+| **3** | Taste Profiler、SSE 機制、端點骨架 | 前端 UI 刻版（mock 資料） | Ranker 完成、交付 D1 整合 | ReccoBeats 覆蓋率驗證 |
 | **4** | Video Resolver 邏輯、配額計數器、降級路徑<br>（+ 兩個 LLM 模組，若 Gateway 可用） | `search.list` 串接<br>**下午：與 D1 同步整合，端到端跑通** | Demo 腳本定稿 | 邊界測試案例撰寫 |
 | **5** | 整合除錯、錯誤處理補完 | 前端串接真實 API、思考動畫、👍👎 | **參數調校**：center／width／懲罰係數／硬過濾決策 | 預熱腳本第一批執行（150 次） |
 | **6** | 支援整合、單元測試補完 | 部署、QR Code、健康檢查頁 | 簡報定稿 | 預熱第二批、邊界測試執行 |
@@ -512,9 +574,9 @@ db.taste_profiles.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 })
 | 風險 | 徵兆 | Plan B |
 |---|---|---|
 | 現場網路不穩 | 載入超過 5 秒 | 切換備用熱點；再不行播預錄影片 |
-| 配額耗盡 | `/api/health` 紅燈 | 切「僅用快取」模式，用預熱過的示範歌單 |
+| 配額耗盡 | `/api/health` 紅燈 | 切「僅用快取」模式，用預熱過的曲庫 |
 | ReccoBeats 掛掉 | 健康檢查紅燈 | 降級模式仍可推薦；口頭說明「這正是我們設計降級路徑的原因」 |
-| 評審貼私人歌單 | 回 404 | 友善提示 + 一鍵切換示範歌單 |
+| 評審貼私人歌單 | 回 404 | 友善提示請對方改用公開連結 |
 | 評審貼非音樂歌單 | 比對率極低 | 顯示提示，仍給出結果 |
 
 **必備：一支 90 秒完整操作錄影，存本機（不是雲端）。** 這是唯一能對抗現場網路的保險。
@@ -527,7 +589,7 @@ db.taste_profiles.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 })
 
 ### 功能
 - [ ] 貼公開歌單可解析出曲目並回傳 taste 向量
-- [ ] 私人歌單有友善提示 + 示範歌單退路
+- [ ] 私人歌單有友善提示，請對方改用公開連結
 - [ ] 自然語言情境可解析為結構化限制
 - [ ] 可產出 Top 5 推薦，每首附引用實際數值的理由
 - [ ] 查不到／不可嵌入的候選被丟棄並補位

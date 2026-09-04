@@ -160,3 +160,34 @@ async def test_resolver_stops_once_it_has_enough(monkeypatch):
 
     assert len(calls) == 5                          # 湊滿就收手，不多花 1,500 點
     assert report.quota_spent == 500
+
+
+async def test_search_failure_is_not_remembered_as_an_unplayable_song(monkeypatch):
+    """search.list 打不通 ≠ 這首歌沒有影片。
+
+    真實事故：金鑰的搜尋額度用完時 Google 回 429，程式把每一首都當成「查不到」，
+    寫進快取當作不可播——那些歌在快取到期前再也推不出來，而且配額被記了假帳。
+    """
+    calls = []
+
+    async def search(artist, title, api_key=None):
+        calls.append(title)
+        raise youtube.SearchUnavailable("429 rateLimitExceeded")
+
+    monkeypatch.setattr(youtube, "search_video", search)
+    repo = MemoryRepository(persist=False)
+    items = candidates(8)
+    # 第一首已經有快取，服務掛掉時仍然要拿得到它
+    await repo.set_video(cache_key(items[0]["artist"], items[0]["title"]),
+                         {"video_id": "cached", "title": items[0]["title"],
+                          "channel": items[0]["artist"], "thumbnail": "", "embeddable": True})
+
+    report = await VideoResolver(repo, QuotaTracker(repo)).resolve(items)
+
+    assert len(calls) == 1                  # 掛掉之後不再送出 search.list
+    assert report.search_down is True
+    assert report.dropped == 0              # 不是候選的錯，不算丟棄
+    assert report.quota_spent == 0          # 沒查成功就不記帳
+    assert len(report.resolved) == 1        # 快取裡那首照樣給
+    for item in items[1:]:
+        assert await repo.get_video(cache_key(item["artist"], item["title"])) is None

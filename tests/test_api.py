@@ -73,16 +73,17 @@ async def test_session_rejects_non_youtube_url(client):
     response = await client.post("/api/session", json={"playlist_url": "https://example.com/list?list=PL1"})
     assert response.status_code == 400
     assert response.json()["detail"]["code"] == "invalid_url"
-    assert len(response.json()["detail"]["hint"]) == 3   # 三組示範歌單退路
+    assert "hint" not in response.json()["detail"]
 
 
-async def test_private_playlist_offers_demo_playlists(client):
+async def test_private_playlist_returns_friendly_error(client):
     response = await client.post("/api/session",
                                  json={"playlist_url": "https://www.youtube.com/playlist?list=PLprivate"})
     assert response.status_code == 404
     detail = response.json()["detail"]
     assert detail["code"] == "playlist_not_accessible"
-    assert "示範歌單" in detail["message"]
+    assert "換一份歌單" in detail["message"]
+    assert "hint" not in detail
 
 
 async def test_recommend_streams_thinking_then_tracks_then_done(client):
@@ -193,3 +194,57 @@ async def test_blacklist_accumulates_across_two_down_votes(client):
     events = parse_sse(second.text)
     assert events[0][1]["blacklist"] == ["loud band"]
     assert all(p["artist"] != "Loud Band" for name, p in events if name == "track")
+
+
+# --- 只給情境、不給歌單的入口 -------------------------------------------------
+
+async def test_recommend_without_session_reads_the_vibe_and_still_returns_tracks(client):
+    """沒有 session_id 就是「只描述情境」。後端要自己讀出氛圍、建 session、照樣推薦。"""
+    response = await client.post("/api/recommend", json={"prompt": "下雨天開車想放空，但不要太吵"})
+    assert response.status_code == 200
+    events = parse_sse(response.text)
+    names = [name for name, _ in events]
+
+    assert "error" not in names
+    assert names[-1] == "done"
+    # session 必須排在第一首歌之前，否則前端拿不到 id 就送不出 👍👎
+    assert names.index("session") < names.index("track")
+
+    session = next(payload for name, payload in events if name == "session")
+    assert session["session_id"]
+    assert session["vibe"]                       # 氛圍是這個入口的重點，不能是空字串
+    assert session["vector"]["energy"] <= 0.5    # 「不要太吵」要收進向量本身
+
+    tracks = [payload for name, payload in events if name == "track"]
+    assert 1 <= len(tracks) <= 5
+    assert all(track["reason"] for track in tracks)
+
+
+async def test_vibe_session_accepts_feedback_afterwards(client):
+    """情境入口建出來的 session 與歌單建的沒有兩樣，👍👎 要照樣運作。"""
+    response = await client.post("/api/recommend", json={"prompt": "專注工作，安靜一點"})
+    events = parse_sse(response.text)
+    session_id = next(p for name, p in events if name == "session")["session_id"]
+    tracks = [p for name, p in events if name == "track"]
+    assert tracks
+
+    feedback = await client.post("/api/feedback", json={
+        "session_id": session_id, "video_id": tracks[0]["video_id"], "vote": "up"
+    })
+    names = [name for name, _ in parse_sse(feedback.text)]
+    assert "error" not in names
+    assert names[0] == "profile"
+
+
+async def test_vibe_recommend_respects_the_do_not_be_loud_constraint(client):
+    """沒有歌單時，情境的上下限仍然是硬過濾——推薦不能炸出來。"""
+    response = await client.post("/api/recommend", json={"prompt": "睡前想安靜一點，不要太吵"})
+    tracks = [p for name, p in parse_sse(response.text) if name == "track"]
+    assert tracks
+    assert all(track["features"]["energy"] <= 0.5 for track in tracks)
+
+
+async def test_recommend_rejects_an_empty_prompt(client):
+    response = await client.post("/api/recommend", json={"prompt": "   "})
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "empty_prompt"

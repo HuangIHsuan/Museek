@@ -64,6 +64,9 @@
     .panel { width:min(100%,560px); border:1px solid var(--ink); background:var(--card); padding:clamp(22px,5vw,42px); box-shadow:8px 8px 0 var(--ink) }
     .panel.wide { width:min(100%,760px) }
     .panel.profile-panel { width:min(100%,430px); padding:22px 16px 18px }
+    #profile { position:relative }
+    .profile-back { position:absolute; top:24px; left:0; z-index:5; min-height:38px; padding:8px 14px; font:700 13px/1 var(--body) }
+    @media (max-width:760px) { .profile-back { top:14px } }
     .profile-panel h2 { margin-bottom:4px; font-size:18px; line-height:1.2; letter-spacing:-.02em }
     .panel h2 { margin-bottom:9px; font:900 clamp(30px,5vw,52px)/.98 var(--display); letter-spacing:-.045em }
     .sub { color:var(--muted); font-size:14px }
@@ -107,6 +110,9 @@
     .results { padding:38px 0 90px }
     .results-head { display:flex; align-items:flex-end; justify-content:space-between; gap:18px; margin-bottom:24px }
     .results-head h2 { margin:0; font:900 clamp(34px,5vw,64px)/.95 var(--display); letter-spacing:-.055em }
+    .vibe-note { max-width:520px; margin:9px 0 0; color:var(--muted); font-size:14px }
+    .vibe-note b { color:var(--ink) }
+    .round-note { color:var(--warn) }
     .head-actions { display:flex; align-items:flex-end; gap:14px }
     .taste-strip { display:grid; grid-auto-flow:column; gap:11px; padding:9px 12px; border:1px solid var(--rule); background:var(--card) }
     .taste-cell { min-width:62px; font:10px var(--mono); color:var(--faint); letter-spacing:.06em }
@@ -125,6 +131,7 @@
     .reason { margin-top:18px; padding:16px 18px; border-left:4px solid var(--accent); background:var(--card); font-size:14px }
     .feature-list { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; margin-top:10px }
     .feature { padding:10px; border:1px solid var(--rule); background:var(--paper); font:11px var(--mono) }
+    .feature-hint { display:block; margin-top:3px; color:var(--muted); font:11px/1.4 var(--body) }
     .tracks { display:grid; gap:12px }
     .track { display:grid; grid-template-columns:128px 1fr; gap:13px; border:1px solid var(--rule); background:var(--card); padding:10px; cursor:pointer; transition:transform .12s ease,border-color .12s ease }
     .track:hover,.track.selected { border-color:var(--ink); transform:translateX(-3px) }
@@ -150,10 +157,7 @@
     .dialog { width:min(430px,100%); border:1px solid var(--ink); background:var(--card); padding:25px; box-shadow:8px 8px 0 var(--warn) }
     .dialog h2 { margin-bottom:8px; font:900 25px var(--display) }
     .dialog p { color:var(--muted) }
-    .demo-list { display:grid; gap:7px; margin:16px 0 4px }
-    .demo-list[hidden] { display:none }
-    .demo-list button { min-height:42px; border:1px solid var(--ink); border-radius:var(--radius); background:var(--paper); cursor:pointer; font-weight:800; text-align:left; padding:0 13px }
-    .demo-list button:hover { background:var(--lime) }
+    .dialog .button { margin-top:18px }
 
     @media (max-width:800px) {
       main { width:min(100% - 28px,600px) }
@@ -200,7 +204,7 @@
             <p class="lede">貼上公開歌單或一首歌，或描述此刻的氛圍。Museek 理解你的音樂品味，探索屬於你的下一個聲音。</p>
             <div class="actions">
               <button class="button primary" data-go="entry">開始體驗</button>
-              <button class="button ghost" id="demo-button">我的品味</button>
+              <button class="button ghost" data-go="profile">我的品味</button>
             </div>
           </div>
           <div class="sound-object" aria-label="動態音訊等化器">
@@ -231,6 +235,7 @@
                 <button class="prompt-chip" type="button">專注工作</button>
                 <button class="prompt-chip" type="button">週末散步</button>
               </div>
+              <div class="field-help">不貼連結也可以：Museek 會先讀出這段情境的氛圍，再從那裡找五首歌。</div>
               <button class="button primary full" type="button" id="mood-submit">開始探索</button>
             </div>
           </form>
@@ -238,12 +243,13 @@
       </section>
 
       <section class="view" id="profile">
+        <button class="button quiet profile-back" type="button" id="profile-back" hidden>← 回到推薦</button>
         <div class="center-stage">
-          <div class="panel profile-panel">
+          <div class="panel profile-panel">  
             <h2>我讀到的你</h2>
             <p class="sub" id="profile-summary">先解析歌單或單曲，建立你的品味輪廓。</p>
             <div class="profile-grid" id="profile-grid"></div>
-            <div class="genre-title">常聽歌手</div>
+            <div class="genre-title" id="genre-title">常聽歌手</div>
             <div class="genres" id="top-artists"></div>
             <div class="match-note" id="match-note">尚未建立品味資料。</div>
             <button class="button primary full" id="profile-submit">開始探索</button>
@@ -270,10 +276,12 @@
             <div>
               <div class="eyebrow">Your Selection</div>
               <h2>今日推薦</h2>
+              <p class="vibe-note" id="vibe-note" hidden></p>
+              <p class="vibe-note round-note" id="round-note" hidden></p>
             </div>
             <div class="head-actions">
               <div class="taste-strip" id="taste-strip" aria-live="polite"></div>
-              <button class="button ghost" data-go="entry">重新探索</button>
+              <button class="button ghost" type="button" id="results-rerun">重新探索</button>
             </div>
           </div>
           <div class="results-layout">
@@ -301,7 +309,6 @@
     <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="dialog-title">
       <h2 id="dialog-title">發生問題</h2>
       <p id="dialog-message"></p>
-      <div class="demo-list" id="dialog-demos" hidden></div>
       <button class="button primary full" id="dialog-close">知道了</button>
     </div>
   </div>
@@ -309,7 +316,8 @@
   <script>
     // 後端已上線；要回到離線刻版把這裡改回 true 即可。
     const MOCK_MODE = false;
-    const state = { sessionId:null, profile:null, previousProfile:null, topArtists:[],
+    const state = { sessionId:null, sourceKind:null, vibe:null, seedSource:null, lastPrompt:"",
+                    profile:null, previousProfile:null, topArtists:[],
                     matched:0, unmatched:0, analyzed:0, tracks:[], selected:null, lastRound:null };
     const $ = id => document.getElementById(id);
     const views = [...document.querySelectorAll(".view")];
@@ -365,28 +373,34 @@
 
     function showView(id) {
       views.forEach(view => view.classList.toggle("active", view.id === id));
+      // 只有已經有推薦結果時才給返回鍵，不然按了會落到空的結果頁
+      if (id === "profile") $("profile-back").hidden = !state.tracks.length;
       window.scrollTo({ top:0, behavior:matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
     }
 
-    function showDialog(title, message, demos) {
+    // action 可換掉最下方那顆按鈕；不給就是單純「知道了」關掉。
+    let dialogAction = null;
+    function showDialog(title, message, action) {
       $("dialog-title").textContent = title;
       $("dialog-message").textContent = message;
-      const list = $("dialog-demos");
-      list.innerHTML = "";
-      list.hidden = !Array.isArray(demos) || !demos.length;
-      (demos || []).forEach(demo => {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.textContent = `試試示範歌單：${demo.name}`;
-        button.addEventListener("click", () => {
-          $("overlay").hidden = true;
-          $("playlist").value = demo.url;
-          createSession(demo.url);
-        });
-        list.appendChild(button);
-      });
+      dialogAction = action || null;
+      $("dialog-close").textContent = action?.label || "知道了";
       $("overlay").hidden = false;
       $("dialog-close").focus();
+    }
+
+    function closeDialog(runAction) {
+      $("overlay").hidden = true;
+      const action = dialogAction;
+      dialogAction = null;
+      if (runAction && action?.run) action.run();
+      $("playlist").focus();
+    }
+
+    // 還沒解析過任何歌單時的統一出口：直接把人帶到貼歌單／情境那一頁。
+    function showTasteEmptyDialog() {
+      showDialog("尚未建立品味清單", "還沒有分析過你的音樂。貼上一份公開歌單或一首歌，也可以直接描述此刻的氛圍。",
+                 { label:"馬上建立", run:() => showView("entry") });
     }
 
     function errorMessage(error) {
@@ -407,7 +421,6 @@
         const error = new Error(
           detail && typeof detail === "object" ? detail.message : detail || "請求失敗"
         );
-        error.hint = detail && typeof detail === "object" ? detail.hint : null;
         throw error;
       }
       return data;
@@ -423,6 +436,9 @@
           ? await mockSession(playlistUrl)
           : await jsonPost("/api/session", { playlist_url:playlistUrl });
         state.sessionId = data.session_id;
+        state.sourceKind = "playlist";
+        state.vibe = null;
+        state.seedSource = null;
         state.previousProfile = null;
         state.profile = data.profile.vector;
         state.topArtists = data.profile.top_artists || [];
@@ -434,7 +450,7 @@
       } catch (error) {
         $("playlist-help").textContent = errorMessage(error);
         $("playlist-help").classList.add("error-text");
-        showDialog("無法解析連結", errorMessage(error), error?.hint);
+        showDialog("無法解析連結", errorMessage(error));
       } finally {
         button.disabled = false;
         button.textContent = "解析連結";
@@ -465,12 +481,20 @@
         const value = Number(vector[key] || 0);
         return `<div class="metric"><div class="metric-top"><span>${label}</span><b>${value.toFixed(2)}</b></div><div class="meter"><span style="width:${Math.round(value * 100)}%"></span></div></div>`;
       }).join("");
-      const total = state.matched + state.unmatched;
-      $("profile-summary").textContent = `來自 ${total} 首歌的品味輪廓`;
-      // 曲庫查不到、改用試聽片段分析出來的那幾首要講清楚，數字才站得住腳
-      const analyzedNote = state.analyzed ? `（其中 ${state.analyzed} 首是分析音訊得到的）` : "";
-      $("match-note").textContent =
-        warning || `已收錄 ${state.matched} 首${analyzedNote}，未收錄 ${state.unmatched} 首。`;
+      if (state.sourceKind === "vibe") {
+        // 這支向量是從情境推出來的目標值，不是聽歌紀錄——說成「你的品味」就是編的
+        $("profile-summary").textContent = state.vibe || "從你描述的情境推出來的氛圍";
+        $("match-note").textContent = "這份輪廓來自你這次描述的情境，不是聽歌紀錄。貼一份歌單可以讓推薦更貼近你平常聽的。";
+        $("genre-title").textContent = "起點歌手";
+      } else {
+        const total = state.matched + state.unmatched;
+        $("profile-summary").textContent = `來自 ${total} 首歌的品味輪廓`;
+        // 曲庫查不到、改用試聽片段分析出來的那幾首要講清楚，數字才站得住腳
+        const analyzedNote = state.analyzed ? `（其中 ${state.analyzed} 首是分析音訊得到的）` : "";
+        $("match-note").textContent =
+          warning || `已收錄 ${state.matched} 首${analyzedNote}，未收錄 ${state.unmatched} 首。`;
+        $("genre-title").textContent = "常聽歌手";
+      }
       renderTopArtists();
       renderTasteStrip();
     }
@@ -535,10 +559,12 @@
 
     async function recommend(prompt) {
       if (!prompt.trim()) return showDialog("需要一點線索", "請描述你現在想聽的氛圍。");
-      if (!state.sessionId) {
-        await createSession("https://www.youtube.com/playlist?list=DEMO001");
+      // 入口頁同時填了連結時先建品味；只寫情境就直接送出，後端會自己讀出氛圍。
+      if (!state.sessionId && $("playlist").value.trim()) {
+        await createSession($("playlist").value.trim());
         if (!state.sessionId) return;
       }
+      state.lastPrompt = prompt.trim();
       showView("thinking");
       renderSteps("parse");
       state.tracks = [];
@@ -547,12 +573,28 @@
         const response = await fetch("/api/recommend", {
           method:"POST",
           headers:{ "Content-Type":"application/json" },
-          body:JSON.stringify({ session_id:state.sessionId, prompt:prompt.trim() })
+          body:JSON.stringify(state.sessionId
+            ? { session_id:state.sessionId, prompt:state.lastPrompt }
+            : { prompt:state.lastPrompt })
         });
         await readEventStream(response, {
           thinking(data) {
             const map = { parse:"parse", candidates:"candidates", rank:"rank" };
             renderSteps(map[data.step] || "rank");
+          },
+          // 只給情境時，session 是後端建的——回饋要用這個 id
+          session(data) {
+            state.sessionId = data.session_id;
+            state.sourceKind = "vibe";
+            state.vibe = data.vibe || "";
+            state.seedSource = data.seed_source || "vibe";
+            state.previousProfile = null;
+            state.profile = data.vector || null;
+            state.topArtists = data.seed_artists || [];
+            state.matched = 0;
+            state.unmatched = 0;
+            state.analyzed = 0;
+            renderProfile();
           },
           track(data) {
             if (!state.tracks.length) renderSteps("verify");
@@ -586,8 +628,15 @@
 
     function renderResults() {
       renderTasteStrip();
+      renderVibeNote();
+      renderRoundNote();
       if (!state.tracks.length) {
-        $("tracks").innerHTML = `<div class="empty">這次沒有找到可播放曲目，換個描述再試一次。</div>`;
+        // 一首都沒有時，原因幾乎都不是「描述不好」——別叫使用者去改一個沒問題的描述
+        const round = state.lastRound || {};
+        const message = (round.search_down || round.cache_only)
+          ? "YouTube 的搜尋額度暫時用完了，這輪沒辦法確認任何一首能不能播。額度重置後再試一次。"
+          : "這次沒有找到可播放曲目，換個描述再試一次。";
+        $("tracks").innerHTML = `<div class="empty">${escapeHtml(message)}</div>`;
         return;
       }
       $("tracks").innerHTML = state.tracks.map((track,index) => `
@@ -602,6 +651,55 @@
       selectTrack(0);
     }
 
+    // 只湊到幾首時要講原因。少給歌又不解釋，看起來就像推薦引擎壞了
+    function renderRoundNote() {
+      const note = $("round-note");
+      if (!note) return;
+      const round = state.lastRound || {};
+      const wanted = round.wanted || 5;
+      const got = state.tracks.length;
+      // 一首都沒有時由空狀態那句說明，這裡不必再講一次
+      note.hidden = got >= wanted || got === 0;
+      if (note.hidden) return;
+      note.textContent = (round.search_down || round.cache_only)
+        ? `這輪只湊到 ${got} 首：YouTube 的搜尋額度暫時用完了，剩下的候選沒辦法確認能不能播。`
+          + `額度重置後再試一次就會恢復。`
+        : `這輪只湊到 ${got} 首：其餘候選在 YouTube 上找不到可以嵌入播放的影片。`;
+    }
+
+    function renderVibeNote() {
+      const note = $("vibe-note");
+      if (!note) return;
+      note.hidden = state.sourceKind !== "vibe" || !state.vibe;
+      if (note.hidden) return;
+      // 起點被換成備援清單時要說出來——推薦的來源變了，使用者有權知道
+      const fallback = state.seedSource === "fallback"
+        ? "<br>曲庫裡沒有這段情境的起點歌手，這次是從備援清單裡挑最貼近的曲目出發。"
+        : "";
+      note.innerHTML = `讀到的氛圍：<b>${escapeHtml(state.vibe)}</b>${fallback}`;
+    }
+
+    const FEATURE_LABELS = { energy:"能量", valence:"情緒明亮度", danceability:"律動感",
+                             acousticness:"原音比例", instrumentalness:"純器樂程度", tempo:"速度（BPM）" };
+    const FEATURE_HINTS = {
+      energy: [[.25,"整首很安靜"],[.45,"力度偏輕"],[.65,"力度中等"],[.85,"有衝勁"],[9,"非常激烈"]],
+      valence: [[.25,"情緒相當低沉"],[.45,"淡淡的憂鬱"],[.6,"不悲不喜"],[.8,"聽起來明亮"],[9,"很雀躍"]],
+      danceability: [[.35,"節奏自由、不好跟拍"],[.6,"律動普通"],[.8,"會想跟著點頭"],[9,"非常好搖擺"]],
+      acousticness: [[.2,"幾乎都是電子音色"],[.45,"電子音色偏多"],[.7,"原音和電子各半"],[.9,"以真實樂器為主"],[9,"幾乎全是原音樂器"]],
+      instrumentalness: [[.2,"以人聲為主"],[.6,"人聲和演奏各半"],[9,"幾乎沒有人聲"]],
+      tempo: [[70,"速度很慢"],[95,"偏慢"],[115,"中等，約走路的節拍"],[140,"偏快"],[999,"非常快"]],
+    };
+
+    function featureLabel(key) {
+      return FEATURE_LABELS[key] || key.toUpperCase();
+    }
+
+    function featureHint(key, value) {
+      const scale = FEATURE_HINTS[key];
+      if (!scale || !Number.isFinite(value)) return "";
+      return (scale.find(([bound]) => value < bound) || scale[scale.length - 1])[1];
+    }
+
     function selectTrack(index) {
       const track = state.tracks[index];
       if (!track) return;
@@ -611,7 +709,12 @@
       $("now-title").textContent = track.title;
       $("now-artist").textContent = track.artist;
       $("now-reason").textContent = track.reason;
-      $("features").innerHTML = Object.entries(track.features || {}).map(([key,value]) => `<div class="feature">${escapeHtml(key.toUpperCase())}<br><b>${Number(value).toFixed(key === "tempo" ? 0 : 2)}</b></div>`).join("");
+      // 標籤與白話註解跟後端 template_reason 的用詞對齊，看理由跟看數字不會是兩套說法
+      $("features").innerHTML = Object.entries(track.features || {}).map(([key,value]) => {
+        const number = Number(value).toFixed(key === "tempo" ? 0 : 2);
+        return `<div class="feature">${escapeHtml(featureLabel(key))}<br><b>${number}</b>` +
+               `<span class="feature-hint">${escapeHtml(featureHint(key, Number(value)))}</span></div>`;
+      }).join("");
     }
 
     async function feedback(index, vote, button) {
@@ -662,7 +765,7 @@
       const go = event.target.closest("[data-go]");
       if (go) {
         const target = go.dataset.go;
-        if (target === "profile" && !state.profile) return showDialog("還沒有品味檔案", "先解析一份公開歌單，或一首歌。");
+        if (target === "profile" && !state.profile) return showTasteEmptyDialog();
         showView(target);
       }
       const track = event.target.closest(".track");
@@ -689,13 +792,30 @@
       if (!value) return showDialog("缺少連結", "請貼上公開的 YouTube 歌單或單曲連結。");
       createSession(value);
     });
-    $("mood-submit").addEventListener("click", () => recommend($("mood").value));
-    $("profile-submit").addEventListener("click", () => recommend("從我的歌單品味出發，推薦有熟悉感但不重複的歌曲"));
-    $("demo-button").addEventListener("click", () => createSession("https://www.youtube.com/playlist?list=DEMO001"));
-    $("dialog-close").addEventListener("click", () => {
-      $("overlay").hidden = true;
-      $("playlist").focus();
+    $("mood-submit").addEventListener("click", () => {
+      // 換了一段情境就得重讀氛圍：沿用上一輪的 session 等於沿用上一段情境的向量與種子。
+      // 歌單建立的 session 不在此列——那份品味本來就要跨情境留著。
+      if (state.sourceKind === "vibe") state.sessionId = null;
+      recommend($("mood").value);
     });
+    $("profile-back").addEventListener("click", () => showView("results"));
+    // 已經分析過的品味就是這輪的起點，不必再問一次情境
+    function continuePrompt() {
+      return state.sourceKind === "vibe"
+        ? (state.lastPrompt || "延續剛才的氛圍")
+        : (state.lastPrompt || "從我的歌單品味出發，推薦有熟悉感但不重複的歌曲");
+    }
+    $("profile-submit").addEventListener("click", () => recommend(continuePrompt()));
+    // 結果頁的「重新探索」是「再給我五首」，不是重貼連結；沒有品味資料時才回入口頁
+    $("results-rerun").addEventListener("click", () => {
+      if (!state.profile && !state.sessionId) return showView("entry");
+      recommend(continuePrompt());
+    });
+    // 點空白處（遮罩本身）只關掉，不執行 CTA；那是「先不要」的意思。
+    $("overlay").addEventListener("click", event => {
+      if (event.target === $("overlay")) closeDialog(false);
+    });
+    $("dialog-close").addEventListener("click", () => closeDialog(true));
     $("health-button").addEventListener("click", async () => {
       const panel = $("health-panel");
       panel.hidden = !panel.hidden;

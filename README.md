@@ -7,6 +7,42 @@ AI 音樂探索 Agent。規格見 `deck/Museek_系統開發文件.md`（以下�
 整條流程端到端可跑，**不需要任何金鑰、不需要 Mongo、不會燒任何配額**：
 貼歌單（或單一首歌）→ 品味向量 → 自然語言情境 → Discovery 排序 → 驗證可播放 → SSE 串流 → 👍👎 重排。
 
+兩個入口共用後半段，差別只在「品味從哪裡來」：
+
+| 入口 | 品味向量 | 推薦種子 |
+|---|---|---|
+| 貼歌單／單曲 | 聽過的歌逐維度取平均 | 歌單曲目在曲庫裡的 id |
+| 只描述情境 | LLM 讀出氛圍，換算成「典型的那一首」，再收進情境的上下限 | LLM 給的起點歌手，各挑一首最貼近氛圍的歌 |
+
+情境入口是 `POST /api/recommend` 不帶 `session_id`：後端自己建工作階段，
+並在第一首歌之前用 `session` 事件把 id 與讀到的氛圍交還前端（👍👎 要用）。
+
+### 備援種子（`seed_source`）
+
+模型給的歌手曲庫一位都沒收、或模型根本沒給（降級）時，會退到
+`app/services/seed_pool.py` 的人工清單——那份清單挑的是**特徵空間的覆蓋率**，
+不是「什麼氛圍配什麼歌手」，實際挑哪幾首由目標向量的距離決定。
+`session` 與 `done` 事件都會帶 `seed_source`（`vibe` / `fallback` / `none`），
+前端在用了備援時會明說，不讓起點被安靜換掉。
+
+```bash
+# 把清單解析成 data/vibe_seeds.json：之後零 API 呼叫，且每首都保證查得到。
+# 這個檔要進版控——正式環境不該在第一個請求時才即時解析。曲庫收錄會變，記得定期重跑。
+RECCOBEATS_MODE=live .venv/bin/python scripts/verify_vibe_seeds.py
+```
+
+### 亞洲比重
+
+推薦端點回來的候選**跟種子幾乎無關**：同一顆種子連問兩次，20 首裡只有 3 首重疊；
+Jay Chou 與 Metallica 的結果 0 首重疊，兩邊都是全球長尾的隨機切片。
+實測 179 首候選裡，亞洲發行（看 ISRC 前兩碼）只有 7 首＝ **3.9%**。
+換種子、改提示詞都動不了這個數字——池子裡沒有的東西，排序排不出來。
+
+所以亞洲曲目是**後端自己補進候選池的**：從 `data/vibe_seeds.json` 的亞洲那一區
+挑幾首特徵貼近這次情境的歌，混進候選池。補進來的歌**不享有任何加分**，
+一樣要跟其他候選比 Discovery Score；`done` 事件會帶 `asia`，說出這一輪
+實際端出幾首亞洲曲目。實測前五名的亞洲佔比從 15% 變成 45%（`ASIA_*` 可調，見 `.env.example`）。
+
 外部服務預設全部走 stub，因此在公司內網也跑得動（§1.1）。要接真實資料只需改 `.env`。
 
 ## 啟動
@@ -34,7 +70,8 @@ app/
   core/
     normalize.py       網址白名單、曲名正規化、快取 key   ← 純字串，內網可測
     profiler.py        Taste Profiler 向量                ← 純數學
-    ranker.py          Discovery Ranker §5                ← 純數學，不碰 YouTube 資料
+    ranker.py          Discovery Ranker §5、沒有歌單時的目標向量、地區名額 ← 純數學，不碰 YouTube 資料
+    regions.py         候選是不是亞洲發行（讀 ISRC 前兩碼）      ← 純函式
     resolver.py        Video Resolver：快取→配額→丟棄補位→熔斷
     quota.py           配額計數與熔斷 §8
     pipeline.py        把上面串成 session／recommend／feedback 三條流程
@@ -42,15 +79,17 @@ app/
     youtube.py         playlistItems.list、search.list（無金鑰→stub）
     reccobeats.py      search / audio-features / recommendation / 音訊分析（失敗→stub）
     itunes.py          曲庫查不到時，抓 30 秒試聽片段餵給分析端點 ← 免金鑰
-    llm.py             Intent Parser、Explainer，三通道可切換
+    llm.py             Intent Parser、Vibe Analyzer、Explainer，三通道可切換
     prompts.py         提示詞與 <user_data> 包裝 §10
+    seed_pool.py       種子池：情境入口的起點，以及候選池裡那份「一定是亞洲」的名額
     stub_data.py       可重現的假曲庫（雜湊決定特徵，同一首歌永遠同一組數字）
   db/repository.py     Mongo 四個 collection + TTL 索引；連不上自動退記憶體版
   static/              單頁 PWA
 scripts/
   prewarm_cache.py     Demo 前快取預熱 §8
   generate_icons.py    PWA 圖示產生器（不依賴 Pillow）
-tests/                 55 個測試，全程 stub，不對外連線
+  verify_vibe_seeds.py 把備援種子池解析成 data/vibe_seeds.json（只打 ReccoBeats）
+tests/                 200 個測試，全程 stub，不對外連線
 ```
 
 ## 三個開關（`.env`）
@@ -60,6 +99,18 @@ tests/                 55 個測試，全程 stub，不對外連線
 | `YOUTUBE_API_KEY` | 空 | **空 = stub，一點配額都不燒。§8 規定只有 D2 該填這格。** |
 | `RECCOBEATS_MODE` | `stub` | `auto` 打真的、失敗自動退 stub；`live` 只打真的 |
 | `LLM_CHANNEL` | `stub` | `stub` 規則式解析；`external` Anthropic API；`gateway` OpenAI 相容端點 |
+
+填了 `YOUTUBE_API_KEY` 之後，金鑰所屬的 Google Cloud 專案還要做兩件事，
+少一件每個連結都會失敗：
+
+1. 在該專案**啟用 YouTube Data API v3**（沒啟用會回 403 `SERVICE_DISABLED`）。
+2. 金鑰若設了「API 限制」，清單裡要**勾選 YouTube Data API v3**
+   （沒勾會回 403 `API_KEY_SERVICE_BLOCKED`）。
+
+這兩種都是 403，和「歌單是私人的」同一個狀態碼但完全不同的原因，
+所以 `/api/session` 會回 `youtube_key_rejected`（503）而不是
+`playlist_not_accessible`（404），`/api/health` 的 `youtube` 欄位也會顯示
+`key_rejected（原因）`。看到公開連結被說成「讀不到」，先看這一欄。
 
 ReccoBeats 打真的時，曲庫第一趟查不到的歌（華語、獨立廠牌很常見）會走兩段補救：
 
@@ -170,14 +221,14 @@ docker run -d --name museek-mongo -p 27017:27017 mirror.gcr.io/library/mongo:7
 4. **前端的假曲風標籤已移除**：原型寫死「Indie / City Pop / R&B」，
    但後端沒有曲風資料。改成從歌單統計出的「常聽歌手」，是真的數字。
 
-5. **示範歌單是佔位符**：`app/api/routes.py` 的 `DEMO_PLAYLISTS` 目前是假 ID，
-   等 T 策展完三組歌單後替換。私人歌單／網址錯誤時前端已經會跳出一鍵切換按鈕。
+5. **沒有示範歌單**：整個專案不提供任何預設／示範歌單。私人歌單或網址錯誤時
+   只給友善錯誤請對方換連結；還沒建立品味時，「我的品味」會跳「尚未建立品味清單」
+   並用「馬上建立」把人帶到貼歌單／情境那一頁。
 
 ## 還沒做的
 
 - [ ] 把已驗證有效的 `tempo` 參數接進推薦端點（NOTES #39 末段，候選池會更貼近情境）
 - [ ] YouTube API Key 申請與 `playlistItems.list` 實測（只能一個人做，§8）
-- [ ] 三組示範歌單策展 + `DEMO_PLAYLISTS` 替換（T）
 - [ ] 曲名正規化測資補到 100 筆真實樣本（T；目前 10 筆涵蓋華／英／日／韓）
 - [ ] iOS standalone 模式下的 IFrame 內嵌實測（外網 + 實機）
 - [ ] 部署與 HTTPS（PWA 的硬前提）

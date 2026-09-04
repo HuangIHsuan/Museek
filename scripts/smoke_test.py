@@ -2,8 +2,8 @@
 
 用法：  .venv/bin/python scripts/smoke_test.py <BASE_URL> [歌單網址]
 
-刻意設計成「不燒配額也能跑完大部分」：只有推薦那一步會用到 search.list，
-而且會把實際花費印出來。
+刻意設計成「不燒配額也能跑完大部分」：只有兩次推薦（歌單入口與情境入口）
+會用到 search.list，而且會把實際花費印出來。
 """
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ import httpx
 
 DEFAULT_PLAYLIST = "https://www.youtube.com/playlist?list=UU4eYXhJI4-7wSWc8UNRwD4A"
 PROMPT = "下雨天開車想放空，類似我平常聽的但不要太吵"
+VIBE_PROMPT = "剛下班的捷運上，想把整天的吵鬧關掉"
 
 passed = failed = 0
 
@@ -69,11 +70,11 @@ def main() -> int:
     check("非 YouTube 網址被擋", bad.status_code == 400,
           bad.json().get("detail", {}).get("code", "") if bad.status_code == 400 else str(bad.status_code))
     missing = client.post(f"{base}/api/session",
-                          json={"playlist_url": "https://www.youtube.com/playlist?list=DEMO001"}, timeout=60)
+                          json={"playlist_url": "https://www.youtube.com/playlist?list=PLnotexist000"}, timeout=60)
     check("無效歌單回友善錯誤（非 500）", missing.status_code == 404,
           f"HTTP {missing.status_code}")
     if missing.status_code == 404:
-        check("附帶示範歌單退路", len(missing.json()["detail"].get("hint") or []) == 3)
+        check("錯誤訊息請對方換連結", "換一份歌單" in missing.json()["detail"].get("message", ""))
 
     print("\n[4] 解析歌單")
     t = time.time()
@@ -125,7 +126,30 @@ def main() -> int:
         check("被 👎 的不再出現", all(t["video_id"] != tracks[0]["video_id"] for t in reranked),
               f"重排後 {len(reranked)} 首")
 
-    print("\n[7] 配額結算")
+    print("\n[7] 只給情境（不貼歌單）")
+    t = time.time()
+    vibe_events = read_sse(client, "/api/recommend", {"prompt": VIBE_PROMPT}, base)
+    vnames = [n for n, _ in vibe_events]
+    check("沒有 error 事件", "error" not in vnames,
+          str([p for n, p in vibe_events if n == "error"]) if "error" in vnames else "")
+    session_events = [p for n, p in vibe_events if n == "session"]
+    check("後端自己建了 session", bool(session_events and session_events[0].get("session_id")))
+    if session_events:
+        vibe = session_events[0]
+        check("讀出了氛圍", bool(vibe.get("vibe")), vibe.get("vibe", ""))
+        check("有起點歌手", bool(vibe.get("seed_artists")),
+              "、".join(vibe.get("seed_artists") or []) or "LLM 沒給——會退回 no_seeds")
+    vibe_tracks = [p for n, p in vibe_events if n == "track"]
+    check("有回傳曲目", len(vibe_tracks) > 0, f"{len(vibe_tracks)} 首  {(time.time()-t):.1f}s")
+    if vibe_tracks:
+        print(f"      例：{vibe_tracks[0]['artist']} - {vibe_tracks[0]['title']}")
+        print(f"          {vibe_tracks[0]['reason']}")
+        # 沒有歌單就沒有聆聽紀錄，理由裡不該出現「你常聽的」這種說法
+        claims = [t for t in vibe_tracks if "常聽" in t["reason"] or "你的歌單" in t["reason"]]
+        check("理由沒有硬掰出聆聽紀錄", not claims,
+              claims[0]["reason"] if claims else "")
+
+    print("\n[8] 配額結算")
     after = client.get(f"{base}/api/health", timeout=60).json()
     spent = after.get("quota_used", 0) - quota_before
     check("配額花費有記錄", spent >= 0, f"本次花費 {spent} 點，累計 {after.get('quota_used')}")

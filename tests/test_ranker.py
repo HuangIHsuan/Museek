@@ -13,8 +13,9 @@ from app.core.ranker import (
     rank,
     score_candidate,
     similarity,
+    target_vector,
 )
-from app.models import Constraints
+from app.models import FEATURE_KEYS, Constraints
 
 # 文件 §5.2 的對照表。實際計算值與文件列出的數字在 0.98／0.85／0.30 三格有落差，
 # 高斯公式本身沒有歧義，因此以計算值為準、對表格放寬到 0.03（已回報 P 修訂文件）。
@@ -183,3 +184,22 @@ def test_feedback_clamps_each_dimension():
 def test_feedback_ignores_dimensions_the_candidate_lacks():
     updated = apply_feedback({"energy": 0.4, "valence": 0.5}, {"energy": 0.8}, "up")
     assert updated["valence"] == 0.5
+
+
+# --- 沒有歌單時的目標向量 -----------------------------------------------------
+
+def test_target_vector_clamps_the_llm_centre_into_the_stated_bounds():
+    """使用者說「不要太吵」，模型卻給了 0.8——上下限一律優先，否則前段會排滿等著被砍的歌。"""
+    vector = target_vector({"energy": 0.8, "valence": 0.7},
+                           Constraints(energy_max=0.45, tempo_range=[70, 110]))
+    assert vector["energy"] == 0.45
+    assert vector["valence"] == 0.7        # 沒被限制到的維度照模型給的走
+    assert 70 <= vector["tempo"] <= 110
+
+
+def test_target_vector_fills_every_scoring_dimension():
+    """相似度會跳過缺值的維度。目標向量缺一格，那一格就等於沒有意見。"""
+    vector = target_vector(None, Constraints())
+    assert set(vector) == set(FEATURE_KEYS)
+    assert all(0.0 <= vector[key] <= 1.0 for key in FEATURE_KEYS if key != "tempo")
+    assert 40.0 <= vector["tempo"] <= 220.0

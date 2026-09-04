@@ -5,11 +5,13 @@
 """
 from __future__ import annotations
 
+import httpx
 import pytest
 
 from app.config import get_settings
 from app.core.quota import QuotaTracker, key_id, pacific_day
 from app.db.repository import MemoryRepository
+from app.services import youtube
 
 KEYS = ["key-alpha", "key-beta", "key-gamma"]
 
@@ -137,3 +139,22 @@ async def test_refresh_picks_up_writes_from_another_instance(repo):
 
     assert await tracker.used() == 9_000
     assert await tracker.active_key() == "key-alpha"  # 9,000 < 10,000，還沒滿
+
+
+def test_search_quota_exhaustion_is_recognised_from_a_429(monkeypatch):
+    """search.list 用完當日次數時 Google 回 429 + rateLimitExceeded，不是 403。
+
+    只認 403 的話熔斷不會跳、金鑰不會換，整輪推薦會被當成「每首都查不到」。
+    """
+    body = {"error": {"code": 429, "status": "RESOURCE_EXHAUSTED",
+                      "errors": [{"reason": "rateLimitExceeded"}]}}
+    request = httpx.Request("GET", "https://www.googleapis.com/youtube/v3/search")
+    response = httpx.Response(429, json=body, request=request)
+    error = httpx.HTTPStatusError("429", request=request, response=response)
+
+    assert youtube._quota_error(error) is True
+
+    not_quota = httpx.Response(400, json={"error": {"errors": [{"reason": "badRequest"}]}},
+                               request=request)
+    assert youtube._quota_error(
+        httpx.HTTPStatusError("400", request=request, response=not_quota)) is False

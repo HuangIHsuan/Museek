@@ -17,7 +17,7 @@ import httpx
 
 from app.config import get_settings
 from app.services.http import client
-from app.services.prompts import EXPLAIN_SYSTEM, INTENT_SYSTEM, wrap_user_data
+from app.services.prompts import EXPLAIN_SYSTEM, INTENT_SYSTEM, vibe_system, wrap_user_data
 
 log = logging.getLogger("museek.llm")
 
@@ -250,19 +250,125 @@ async def parse_intent(user_text: str) -> Dict:
     return rule_based_intent(user_text)
 
 
-async def explain(user_vector: Dict, candidate: Dict, context: str) -> str:
-    """回傳 60 字內繁體中文理由。失敗就退回模板——理由裡的數字一律取自音訊特徵。"""
+# --- 氛圍分析：沒有歌單時的入口 ---------------------------------------------
+
+VIBE_TARGET_KEYS = ("energy", "valence", "danceability", "acousticness",
+                    "instrumentalness", "tempo")
+VIBE_MAX_ARTISTS = 5
+VIBE_MAX_CHARS = 40
+ARTIST_NAME_MAX = 60      # 比這更長的不會是歌手名，多半是模型把情境整段抄了回來
+
+
+async def analyze_vibe(user_text: str) -> Dict:
+    """情境 → 氛圍。回傳 {"vibe": 一句話, "target": 中心特徵, "seed_artists": [...]}。
+
+    使用者沒有給歌單時，品味向量無從平均出來，推薦種子也無處可取。
+    這支負責回答那兩件事：這個情境「聽起來該是什麼樣子」，
+    以及「該從曲庫的哪幾位歌手開始找」。
+
+    降級後 seed_artists 會是空的——歌手名是知識，規則式生不出來，
+    硬編一份清單只會讓每個人的情境都推到同幾首歌。沒有種子的處置在 pipeline。
+    """
+    settings = get_settings()
+    if settings.llm_channel != "stub" and settings.llm_ready:
+        prompt = wrap_user_data(user_text)
+        base = vibe_system(settings.seed_asia_min)
+        for attempt in range(2):  # 與 parse_intent 同樣的重試策略
+            try:
+                system = base if attempt == 0 else base + "\n\n只輸出 JSON。"
+                raw = await _complete(system, prompt, max_tokens=600)
+                parsed = _normalize_vibe(_extract_json(raw))
+                if parsed["vibe"]:
+                    return parsed
+                log.warning("analyze_vibe 沒給出氛圍描述，改用規則式")
+                break
+            except Exception as error:  # noqa: BLE001
+                log.warning("analyze_vibe 第 %d 次失敗：%s", attempt + 1, error)
+    return rule_based_vibe(user_text)
+
+
+def _normalize_vibe(raw: Dict) -> Dict:
+    """整成契約形狀。數值的範圍檢查交給 ranker.target_vector，這裡只管型別與長度。"""
+    source = raw.get("target") or {}
+    target = {key: float(source[key]) for key in VIBE_TARGET_KEYS
+              if isinstance(source.get(key), (int, float))}
+
+    artists: List[str] = []
+    seen = set()
+    for name in (raw.get("seed_artists") or []) if isinstance(raw.get("seed_artists"), list) else []:
+        text = str(name).strip()
+        if not text or len(text) > ARTIST_NAME_MAX:
+            continue
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        artists.append(text)
+        if len(artists) >= VIBE_MAX_ARTISTS:
+            break
+
+    vibe = " ".join(str(raw.get("vibe") or "").split())[:VIBE_MAX_CHARS]
+    return {"vibe": vibe, "target": target, "seed_artists": artists}
+
+
+# 規則式的氛圍中心值。只按情緒分四檔——活動帶來的限制已經由 Intent 的上下限表達，
+# 在 ranker.target_vector 裡會再收一次，這裡重複一遍只會兩邊打架。
+_VIBE_TARGETS = {
+    "低落": {"energy": 0.32, "valence": 0.25, "danceability": 0.40, "acousticness": 0.55, "tempo": 85.0},
+    "平靜": {"energy": 0.38, "valence": 0.45, "danceability": 0.45, "acousticness": 0.50, "tempo": 92.0},
+    "愉悅": {"energy": 0.62, "valence": 0.75, "danceability": 0.65, "acousticness": 0.35, "tempo": 112.0},
+    "激昂": {"energy": 0.85, "valence": 0.62, "danceability": 0.70, "acousticness": 0.12, "tempo": 140.0},
+}
+_VIBE_MOOD_WORDS = {"低落": "低沉內收", "平靜": "安靜舒緩", "愉悅": "明亮輕快", "激昂": "high 起來"}
+
+
+# 「熱鬧」是愉悅裡特別吵、特別好搖擺的那一格。共用愉悅的中心值會推出咖啡廳背景樂。
+_LIVELY_WORDS = ("熱鬧", "派對", "party", "慶祝", "開趴", "歡樂", "有活力", "動感")
+_LIVELY_TARGET = {"energy": 0.78, "valence": 0.80, "danceability": 0.78,
+                  "acousticness": 0.18, "tempo": 122.0}
+
+
+def rule_based_vibe(user_text: str) -> Dict:
+    """不打任何 LLM 的氛圍分析。給得出氛圍與中心值，給不出歌手名。"""
+    intent = rule_based_intent(user_text)
+    mood, activity = intent.get("mood"), intent.get("activity")
+    target = dict(_VIBE_TARGETS.get(mood or "", {}))
+    lively = any(word in (user_text or "").lower() for word in _LIVELY_WORDS)
+    if lively:
+        target = dict(_LIVELY_TARGET)
+
+    word = "熱鬧起來" if lively else _VIBE_MOOD_WORDS.get(mood or "")
+    if activity and word:
+        vibe = f"{activity}時{word}的氛圍"
+    elif activity:
+        vibe = f"適合{activity}的氛圍"
+    elif word:
+        vibe = f"{word}的氛圍"
+    else:
+        vibe = "沒有明確線索，先抓中性的氛圍"
+    return {"vibe": vibe, "target": target, "seed_artists": []}
+
+
+async def explain(user_vector: Dict, candidate: Dict, context: str, *,
+                  mood_only: bool = False) -> str:
+    """回傳 60 字內繁體中文理由。失敗就退回模板——理由裡的數字一律取自音訊特徵。
+
+    mood_only 是「使用者沒有給歌單」的情況：向量不是從他聽過的歌平均出來的，
+    而是從情境推出來的中心值。說成「你的品味」會是憑空捏造的一句話。
+    """
     settings = get_settings()
     if settings.llm_channel != "stub" and settings.llm_ready:
         features = candidate.get("features") or {}
+        label = "情境的目標音訊特徵" if mood_only else "使用者品味向量"
         payload = (
-            f"使用者品味向量：{json.dumps(_round(user_vector), ensure_ascii=False)}\n"
+            f"{label}：{json.dumps(_round(user_vector), ensure_ascii=False)}\n"
             f"候選曲目音訊特徵：{json.dumps(_round(features), ensure_ascii=False)}\n"
             f"使用者情境：{wrap_user_data(context)}\n"
             f"曲目資訊：{wrap_user_data(candidate.get('artist', '') + ' - ' + candidate.get('title', ''))}"
         )
+        system = EXPLAIN_SYSTEM + (MOOD_ONLY_NOTE if mood_only else "")
         try:
-            text = (await _complete(EXPLAIN_SYSTEM, payload, max_tokens=300)).strip()
+            text = (await _complete(system, payload, max_tokens=300)).strip()
             if text:
                 _mark_explain(True)
                 return _trim_reason(text)
@@ -270,7 +376,14 @@ async def explain(user_vector: Dict, candidate: Dict, context: str) -> str:
         except Exception as error:  # noqa: BLE001
             log.warning("explain 失敗，改用模板：%s", error)
         _mark_explain(False)
-    return template_reason(user_vector, candidate)
+    return template_reason(user_vector, candidate, mood_only=mood_only)
+
+
+MOOD_ONLY_NOTE = """
+
+7. 這位使用者沒有提供歌單，向量是從他描述的情境推出來的目標值，不是他的聆聽紀錄。
+   因此第 3 點請改成：說明這首歌「符合情境的一點」與「超出情境的一點」，
+   絕對不要出現「你的品味」「你常聽的」「你的歌單」這類說法。"""
 
 
 def _mark_explain(ok: bool) -> None:
@@ -326,11 +439,14 @@ def _normalize_intent(raw: Dict) -> Dict:
 MOODS = ("低落", "平靜", "愉悅", "激昂")
 ACTIVITIES = ("開車", "通勤", "工作", "運動", "放空", "入睡")
 
+# 規則式解析只認得寫在這裡的詞——LLM 連不上時，這份清單就是全部的理解能力。
+# 因此同義詞要盡量寫滿：漏掉一個「熱鬧」，使用者拿到的就是中性氛圍的隨機歌。
 _MOOD_RULES = [
-    ("低落", ["低落", "難過", "傷心", "憂鬱", "emo", "沮喪", "失戀", "想哭"]),
-    ("激昂", ["激昂", "嗨", "熱血", "亢奮", "衝", "爆發", "興奮", "運動", "健身"]),
-    ("愉悅", ["愉悅", "開心", "快樂", "好心情", "輕快", "陽光"]),
-    ("平靜", ["平靜", "放鬆", "冷靜", "舒服", "安靜", "放空", "療癒", "chill"]),
+    ("低落", ["低落", "難過", "傷心", "憂鬱", "emo", "沮喪", "失戀", "想哭", "孤單", "寂寞"]),
+    ("激昂", ["激昂", "嗨", "熱血", "亢奮", "衝", "爆發", "興奮", "運動", "健身", "動感"]),
+    ("愉悅", ["愉悅", "愉快", "開心", "快樂", "好心情", "輕快", "陽光", "歡樂", "熱鬧",
+              "派對", "party", "慶祝", "活潑", "有活力", "元氣", "雀躍", "輕鬆愉快"]),
+    ("平靜", ["平靜", "放鬆", "冷靜", "舒服", "安靜", "放空", "療癒", "chill", "溫柔", "慵懶"]),
 ]
 _ACTIVITY_RULES = [
     ("開車", ["開車", "駕駛", "上路", "兜風", "公路"]),
@@ -378,6 +494,11 @@ def rule_based_intent(user_text: str) -> Dict:
         avoid.append("過度悲傷")
     if mood == "愉悅":
         constraints.setdefault("valence_min", 0.5)
+    # 「熱鬧」不只是開心，還要有音量與律動。少了這一條，熱鬧的情境會推出安靜的歌
+    if has("熱鬧", "派對", "party", "慶祝", "開趴", "歡樂", "有活力", "動感"):
+        constraints["energy_min"] = max(float(constraints.get("energy_min", 0.0)), 0.55)
+        constraints.pop("energy_max", None)
+        constraints.setdefault("valence_min", 0.55)
     if mood == "低落" and not has("開心", "振作"):
         constraints.setdefault("valence_max", 0.6)
     if activity == "開車" and "tempo_range" not in constraints:
@@ -405,14 +526,64 @@ _LABELS = {
     "acousticness": "原音比例", "instrumentalness": "純器樂程度", "tempo": "速度",
 }
 
+# 每個特徵值換成一句人聽得懂的話。數字照舊留著（都來自音訊特徵），
+# 但使用者要的是「這首歌聽起來怎樣」，不是「acousticness 0.95」。
+_DESCRIPTIONS = {
+    "energy": [(0.25, "整首很安靜"), (0.45, "力度偏輕"), (0.65, "力度中等"),
+               (0.85, "聽起來有衝勁"), (1.01, "非常激烈")],
+    "valence": [(0.25, "情緒相當低沉"), (0.45, "帶點淡淡的憂鬱"), (0.6, "情緒不悲不喜"),
+                (0.8, "聽起來蠻明亮"), (1.01, "很雀躍")],
+    "danceability": [(0.35, "節奏自由、不好跟拍"), (0.6, "律動普通"),
+                     (0.8, "律動明確、會想跟著點頭"), (1.01, "非常好搖擺")],
+    "acousticness": [(0.2, "幾乎都是電子音色"), (0.45, "電子音色偏多"),
+                     (0.7, "原音和電子各半"), (0.9, "以真實樂器為主"),
+                     (1.01, "幾乎全是原音樂器")],
+    "instrumentalness": [(0.2, "以人聲為主"), (0.6, "人聲和演奏各半"), (1.01, "幾乎沒有人聲")],
+    "tempo": [(70, "速度很慢"), (95, "速度偏慢"), (115, "速度中等，大約是走路的節拍"),
+              (140, "速度偏快"), (999, "速度非常快")],
+}
 
-def template_reason(user_vector: Dict, candidate: Dict) -> str:
-    """模板理由：引用的每個數字都來自音訊特徵，不是 LLM 猜的。"""
+# 差最多的那個維度要說「差在哪個方向」，同樣用日常說法而不是「高／低出一截」。
+_DIRECTIONS = {
+    "energy": ("更有勁", "更安靜"),
+    "valence": ("更開朗", "更低沉"),
+    "danceability": ("節奏更好跟", "節奏更鬆散"),
+    "acousticness": ("原音成分更重", "電子味更重"),
+    "instrumentalness": ("人聲更少", "人聲更多"),
+    "tempo": ("更快", "更慢"),
+}
+
+
+def _describe(key: str, value: float) -> str:
+    for threshold, text in _DESCRIPTIONS[key]:
+        if value < threshold:
+            return text
+    return _DESCRIPTIONS[key][-1][1]
+
+
+def _number(key: str, value: float) -> str:
+    return f"約 {value:.0f} BPM" if key == "tempo" else f"{_LABELS[key]} {value:.2f}"
+
+
+def _magnitude(distance: float) -> str:
+    """差距的程度詞。沒有這個詞，0.05 和 0.4 的落差會被寫成同一句話。"""
+    if distance >= 0.25:
+        return "明顯"
+    return "" if distance >= 0.12 else "稍微"
+
+
+def template_reason(user_vector: Dict, candidate: Dict, *, mood_only: bool = False) -> str:
+    """模板理由：引用的每個數字都來自音訊特徵，不是 LLM 猜的。
+
+    數字保留（可以追溯），但主詞換成白話——使用者看的是「為什麼推這首」，
+    不是特徵表。mood_only 時比較的基準是情境推出來的中心值，不是使用者聽過的歌。
+    """
+    anchor, short_anchor = ("這段情境需要的", "情境需要的") if mood_only else ("你常聽的", "你平常聽的")
     features = candidate.get("features") or {}
     shared = [k for k in ("energy", "valence", "danceability", "acousticness", "tempo")
               if k in features and k in user_vector]
     if not shared:
-        return "音訊特徵與你的歌單接近，適合現在的情境。"
+        return "整體聽感貼近你描述的情境。" if mood_only else "整體聽感和你的歌單很接近，適合現在的情境。"
 
     def gap(key: str) -> float:
         scale = 200.0 if key == "tempo" else 1.0
@@ -420,12 +591,14 @@ def template_reason(user_vector: Dict, candidate: Dict) -> str:
 
     closest = min(shared, key=gap)
     farthest = max(shared, key=gap)
-    unit = " BPM" if closest == "tempo" else ""
-    unit_far = " BPM" if farthest == "tempo" else ""
-    close_text = f"{_LABELS[closest]} {float(features[closest]):.2f}{unit}".replace(".00 BPM", " BPM")
+    close_value = float(features[closest])
+    close_text = f"{_describe(closest, close_value)}（{_number(closest, close_value)}）"
 
     if farthest == closest:
-        return f"{close_text} 與你常聽的幾乎一致，屬於熟悉範圍內的選擇。"
-    direction = "高" if float(features[farthest]) > float(user_vector[farthest]) else "低"
-    far_text = f"{_LABELS[farthest]} {float(features[farthest]):.2f}{unit_far}".replace(".00 BPM", " BPM")
-    return f"{close_text}，與你平常聽的幾乎一致；但{far_text}，比你的平均{direction}出一截。"
+        return f"{close_text}，跟{anchor}幾乎一模一樣，正好落在情境的正中間。"
+
+    far_value = float(features[farthest])
+    direction = _DIRECTIONS[farthest][0 if far_value > float(user_vector[farthest]) else 1]
+    far_text = f"{_describe(farthest, far_value)}（{_number(farthest, far_value)}）"
+    return (f"{close_text}，跟{anchor}幾乎一樣；比較不同的是它{far_text}，"
+            f"{_magnitude(gap(farthest))}比{short_anchor}{direction}。")
