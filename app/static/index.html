@@ -46,7 +46,7 @@
     .view.active { display:block }
     @keyframes enter { from { opacity:0; transform:translateY(16px) } }
 
-    .hero { min-height:calc(100dvh - 64px); display:grid; grid-template-columns:1.28fr .72fr; gap:7vw; align-items:center; padding:42px 0 }
+    .hero { min-height:calc(100dvh - 64px); display:grid; grid-template-columns:1.28fr .72fr; align-items:center; padding:42px 0 }
     .eyebrow { display:flex; align-items:center; gap:10px; margin-bottom:20px; color:var(--accent); font:700 14px/1 var(--mono); letter-spacing:.24em; text-transform:uppercase }
     .eyebrow::before { content:""; width:28px; height:2px; background:var(--accent) }
     h1,h2,h3,p { margin-top:0 }
@@ -63,11 +63,28 @@
     .center-stage { min-height:calc(100dvh - 64px); display:grid; place-items:center; padding:48px 0 80px }
     .panel { width:min(100%,560px); border:1px solid var(--ink); background:var(--card); padding:clamp(22px,5vw,42px); box-shadow:8px 8px 0 var(--ink) }
     .panel.wide { width:min(100%,760px) }
-    .panel.profile-panel { width:min(100%,430px); padding:22px 16px 18px }
-    #profile { position:relative }
-    .profile-back { position:absolute; top:24px; left:0; z-index:5; min-height:38px; padding:8px 14px; font:700 13px/1 var(--body) }
-    @media (max-width:760px) { .profile-back { top:14px } }
-    .profile-panel h2 { margin-bottom:4px; font-size:18px; line-height:1.2; letter-spacing:-.02em }
+    .panel.profile-panel { flex:0 0 min(80vw,340px); width:min(80vw,340px); padding:22px 16px 18px;
+                           user-select:none; opacity:.45; transform:scale(.95);
+                           transition:opacity .3s ease,transform .3s ease }
+    .profile-stage { padding:48px 0 90px }
+    .profile-head { margin-bottom:26px; text-align:center }
+    .profile-head h2 { margin-bottom:12px; font:900 clamp(30px,5vw,52px)/.98 var(--display); letter-spacing:-.045em }
+    .profile-head .eyebrow { justify-content:center }
+    /* 卡片排在同一條水平線上，選中的那張永遠停在正中央 */
+    .profile-carousel { overflow:hidden; padding:16px 0 14px; cursor:grab; touch-action:pan-y }
+    .profile-carousel.dragging { cursor:grabbing }
+    .profile-track { display:flex; align-items:flex-start; gap:26px; transition:transform .42s cubic-bezier(.16,1,.3,1) }
+    .profile-track.dragging { transition:none }
+    .profile-dots { display:flex; justify-content:center; gap:4px; margin-top:22px }
+    .profile-dots[hidden] { display:none }
+    .profile-dot { display:grid; place-items:center; width:30px; height:30px; border:0; background:none; padding:0; cursor:pointer }
+    .profile-dot::before { content:""; width:10px; height:10px; border:1px solid var(--ink); border-radius:50%; transition:background .18s ease,transform .18s ease }
+    .profile-dot[aria-current=true]::before { border-color:var(--accent); background:var(--accent); transform:scale(1.25) }
+    .profile-meta { display:flex; align-items:center; gap:8px; margin-bottom:10px; color:var(--faint); font:10px var(--mono); letter-spacing:.12em; text-transform:uppercase }
+    .profile-tag { border:1px solid var(--ink); border-radius:999px; padding:2px 9px; color:var(--ink); font-weight:700 }
+    /* 正在看的那一輪要一眼認得出來，不然多張卡片會分不清剛才是從哪一張進去的 */
+    .panel.profile-panel.current { opacity:1; transform:none; box-shadow:8px 8px 0 var(--accent) }
+    .profile-panel h3 { margin:0 0 4px; font:800 18px/1.25 var(--display); letter-spacing:-.02em }
     .panel h2 { margin-bottom:9px; font:900 clamp(30px,5vw,52px)/.98 var(--display); letter-spacing:-.045em }
     .sub { color:var(--muted); font-size:14px }
     .field-group { display:grid; gap:7px; margin-top:25px }
@@ -142,7 +159,10 @@
     .feedback { grid-column:1/-1; display:flex; gap:8px }
     .vote { flex:1; min-height:42px; border:1px solid var(--rule); background:var(--paper); cursor:pointer; font-weight:900 }
     .vote:hover { border-color:var(--ink) }
-    .vote[aria-pressed=true] { background:var(--ink); color:var(--paper) }
+    .vote[aria-pressed=true] { background:var(--ink); color:var(--paper); border-color:var(--ink) }
+    .vote:disabled { cursor:default }
+    /* 選中的卡片靠 box-shadow 標示，喜歡過的就改用左緣色塊，兩個記號才不會互相蓋掉 */
+    .track.liked { border-left:4px solid var(--lime); padding-left:7px }
     .empty { padding:50px 24px; border:1px dashed var(--faint); text-align:center; color:var(--muted) }
 
     .health-button { position:fixed; right:18px; bottom:18px; z-index:25; min-height:40px; border:1px solid var(--ink); border-radius:999px; background:var(--card); padding:8px 13px; cursor:pointer; box-shadow:3px 3px 0 var(--ink); font:11px var(--mono) }
@@ -164,7 +184,7 @@
       .topbar { padding:0 15px }
       .nav-link { display:none }
       .hero { grid-template-columns:1fr; gap:28px; padding:38px 0 60px }
-      h1 { font-size:clamp(48px,16vw,72px) }
+      h1 { font-size:clamp(48px,15vw,72px) }
       .sound-object { height:150px; min-height:0; box-shadow:6px 6px 0 var(--ink) }
       .results-layout { grid-template-columns:1fr }
       .player-side { position:static }
@@ -243,17 +263,17 @@
       </section>
 
       <section class="view" id="profile">
-        <button class="button quiet profile-back" type="button" id="profile-back" hidden>← 回到推薦</button>
-        <div class="center-stage">
-          <div class="panel profile-panel">  
+        <div class="profile-stage">
+          <div class="profile-head">
+            <div class="eyebrow">Your Taste</div>
             <h2>我讀到的你</h2>
-            <p class="sub" id="profile-summary">先解析歌單或單曲，建立你的品味輪廓。</p>
-            <div class="profile-grid" id="profile-grid"></div>
-            <div class="genre-title" id="genre-title">常聽歌手</div>
-            <div class="genres" id="top-artists"></div>
-            <div class="match-note" id="match-note">尚未建立品味資料。</div>
-            <button class="button primary full" id="profile-submit">開始探索</button>
+            <p class="sub" id="profile-lead">先解析歌單或單曲，建立你的品味輪廓。</p>
           </div>
+          <div class="profile-carousel" id="profile-carousel" role="group" aria-label="品味卡片">
+            <div class="profile-track" id="profile-track"></div>
+          </div>
+          <div class="profile-dots" id="profile-dots" aria-label="切換品味卡片" hidden></div>
+          <div id="profile-empty" hidden><div class="empty">尚未建立品味資料。</div></div>
         </div>
       </section>
 
@@ -316,9 +336,87 @@
   <script>
     // 後端已上線；要回到離線刻版把這裡改回 true 即可。
     const MOCK_MODE = false;
-    const state = { sessionId:null, sourceKind:null, vibe:null, seedSource:null, lastPrompt:"",
-                    profile:null, previousProfile:null, topArtists:[],
-                    matched:0, unmatched:0, analyzed:0, tracks:[], selected:null, lastRound:null };
+    // 一次造訪可能解析好幾份歌單／情境，每一份都是一張品味卡片，各自記著自己那輪的推薦。
+    // previewId：剛解析完只給看那一張；沒推薦過的卡片不會留在「我的品味」裡
+    const state = { entries:[], activeId:null, previewId:null, cardIndex:0, cardOffset:0 };
+    let entrySeq = 0;
+    function activeEntry() { return state.entries.find(entry => entry.id === state.activeId) || null; }
+    function newEntry(fields) {
+      const entry = { id:`taste-${++entrySeq}`, sessionId:null, sourceKind:null, vibe:null, seedSource:null,
+                      profile:null, previousProfile:null, topArtists:[], warning:null,
+                      matched:0, unmatched:0, analyzed:0, lastPrompt:"",
+                      tracks:[], liked:[], lastRound:null, selected:null, createdAt:new Date(), ...fields };
+      state.entries.push(entry);
+      state.activeId = entry.id;
+      return entry;
+    }
+    // 重整後還看得到上次的紀錄：把品味輪廓與推過的歌寫進 localStorage。
+    // 只存資料與所在頁面，不存 previewId 這種「剛解析完」的暫態。
+    const STORE_KEY = "museek.history.v1";
+    const STORE_LIMIT = 20;          // 只留最近 20 輪，免得 localStorage 被塞滿
+    let restoredView = null;
+
+    function saveState() {
+      try {
+        // 空卡片不留：重整後只會變成品味頁上的一張白卡
+        const entries = state.entries
+          .filter(entry => entry.profile || entry.tracks.length)
+          .slice(-STORE_LIMIT);
+        if (!entries.length) return localStorage.removeItem(STORE_KEY);
+        const view = document.querySelector(".view.active")?.id;
+        const activeId = entries.some(entry => entry.id === state.activeId)
+          ? state.activeId : entries[entries.length - 1].id;
+        localStorage.setItem(STORE_KEY, JSON.stringify({
+          version:1,
+          activeId,
+          view:(view === "results" || view === "profile") ? view : null,
+          entries:entries.map(entry => ({
+            ...entry,
+            createdAt:(entry.createdAt instanceof Date ? entry.createdAt : new Date(entry.createdAt)).toISOString()
+          }))
+        }));
+      } catch {}
+      // 無痕視窗或容量已滿都可能寫不進去，但那不該讓正在進行的探索停下來
+    }
+
+    function restoreState() {
+      let saved = null;
+      try { saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null"); } catch {}
+      if (saved?.version !== 1 || !Array.isArray(saved.entries) || !saved.entries.length) return;
+      state.entries = saved.entries.map(entry => ({
+        ...entry, createdAt:new Date(entry.createdAt), tracks:entry.tracks || [], liked:entry.liked || []
+      }));
+      state.activeId = state.entries.some(entry => entry.id === saved.activeId)
+        ? saved.activeId : state.entries[state.entries.length - 1].id;
+      state.previewId = null;        // 「剛解析完」是上一次造訪的事了
+      // 續號要接在還原的卡片之後，不然新卡片會撞到舊 id
+      entrySeq = state.entries.reduce(
+        (max, entry) => Math.max(max, Number(String(entry.id).split("-")[1]) || 0), 0);
+      restoredView = saved.view || null;
+    }
+
+    function dropEntry(entry) {
+      state.entries = state.entries.filter(item => item !== entry);
+      if (state.previewId === entry.id) state.previewId = null;
+      if (state.activeId === entry.id) state.activeId = state.entries[state.entries.length - 1]?.id || null;
+    }
+
+    // 解析了卻沒按下探索的品味不留下來——只有推出過歌的那幾輪才算數
+    function pruneUnexplored(keepId) {
+      state.entries = state.entries.filter(entry =>
+        entry.tracks.length || entry.id === keepId || entry.id === state.activeId);
+    }
+
+    // 品味頁要顯示哪幾張：剛解析完只給那一張，否則就是推過歌的每一輪
+    function galleryEntries() {
+      const preview = state.entries.find(entry => entry.id === state.previewId);
+      if (preview) return [preview];
+      const played = state.entries.filter(entry => entry.tracks.length);
+      if (played.length) return played;
+      // 還沒探索過但手上有輪廓時，至少讓人看得到自己剛解析出什麼
+      const current = activeEntry();
+      return current?.profile ? [current] : [];
+    }
     const $ = id => document.getElementById(id);
     const views = [...document.querySelectorAll(".view")];
     const mockTracks = [
@@ -373,9 +471,9 @@
 
     function showView(id) {
       views.forEach(view => view.classList.toggle("active", view.id === id));
-      // 只有已經有推薦結果時才給返回鍵，不然按了會落到空的結果頁
-      if (id === "profile") $("profile-back").hidden = !state.tracks.length;
+      if (id === "profile") renderProfiles();
       window.scrollTo({ top:0, behavior:matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+      saveState();
     }
 
     // action 可換掉最下方那顆按鈕；不給就是單純「知道了」關掉。
@@ -435,17 +533,18 @@
         const data = MOCK_MODE
           ? await mockSession(playlistUrl)
           : await jsonPost("/api/session", { playlist_url:playlistUrl });
-        state.sessionId = data.session_id;
-        state.sourceKind = "playlist";
-        state.vibe = null;
-        state.seedSource = null;
-        state.previousProfile = null;
-        state.profile = data.profile.vector;
-        state.topArtists = data.profile.top_artists || [];
-        state.matched = data.matched;
-        state.unmatched = data.unmatched;
-        state.analyzed = data.analyzed || 0;
-        renderProfile(data.profile.warning);
+        const fields = { sessionId:data.session_id, sourceKind:"playlist", vibe:null, seedSource:null,
+                         previousProfile:null, profile:data.profile.vector,
+                         topArtists:data.profile.top_artists || [], warning:data.profile.warning || null,
+                         matched:data.matched, unmatched:data.unmatched, analyzed:data.analyzed || 0 };
+        // 同一份歌單再解析一次會拿到同一個 session，那就更新原本那張卡，不要疊出重複的
+        const existing = state.entries.find(entry => entry.sessionId === data.session_id);
+        if (existing) { Object.assign(existing, fields); state.activeId = existing.id; }
+        else newEntry(fields);
+        // 解析完就只給看這一張；上一份沒探索過的品味到這裡就丟掉
+        state.previewId = state.activeId;
+        pruneUnexplored(state.activeId);
+        renderTasteStrip();
         showView("profile");
       } catch (error) {
         $("playlist-help").textContent = errorMessage(error);
@@ -474,46 +573,120 @@
       }
     }
 
-    function renderProfile(warning) {
-      const vector = state.profile || {};
-      const labels = { energy:"ENERGY", valence:"VALENCE", danceability:"DANCEABILITY", acousticness:"ACOUSTICNESS" };
-      $("profile-grid").innerHTML = Object.entries(labels).map(([key,label]) => {
-        const value = Number(vector[key] || 0);
-        return `<div class="metric"><div class="metric-top"><span>${label}</span><b>${value.toFixed(2)}</b></div><div class="meter"><span style="width:${Math.round(value * 100)}%"></span></div></div>`;
-      }).join("");
-      if (state.sourceKind === "vibe") {
-        // 這支向量是從情境推出來的目標值，不是聽歌紀錄——說成「你的品味」就是編的
-        $("profile-summary").textContent = state.vibe || "從你描述的情境推出來的氛圍";
-        $("match-note").textContent = "這份輪廓來自你這次描述的情境，不是聽歌紀錄。貼一份歌單可以讓推薦更貼近你平常聽的。";
-        $("genre-title").textContent = "起點歌手";
-      } else {
-        const total = state.matched + state.unmatched;
-        $("profile-summary").textContent = `來自 ${total} 首歌的品味輪廓`;
-        // 曲庫查不到、改用試聽片段分析出來的那幾首要講清楚，數字才站得住腳
-        const analyzedNote = state.analyzed ? `（其中 ${state.analyzed} 首是分析音訊得到的）` : "";
-        $("match-note").textContent =
-          warning || `已收錄 ${state.matched} 首${analyzedNote}，未收錄 ${state.unmatched} 首。`;
-        $("genre-title").textContent = "常聽歌手";
-      }
-      renderTopArtists();
-      renderTasteStrip();
+    function entrySummary(entry) {
+      // 這支向量是從情境推出來的目標值，不是聽歌紀錄——說成「你的品味」就是編的
+      if (entry.sourceKind === "vibe") return entry.vibe || "從你描述的情境推出來的氛圍";
+      return `來自 ${entry.matched + entry.unmatched} 首歌的品味輪廓`;
     }
 
-    function renderTopArtists() {
-      const target = $("top-artists");
-      if (!target) return;
+    function entryNote(entry) {
+      if (entry.sourceKind === "vibe") {
+        return "這份輪廓來自你這次描述的情境，不是聽歌紀錄。貼一份歌單可以讓推薦更貼近你平常聽的。";
+      }
+      // 曲庫查不到、改用試聽片段分析出來的那幾首要講清楚，數字才站得住腳
+      const analyzedNote = entry.analyzed ? `（其中 ${entry.analyzed} 首是分析音訊得到的）` : "";
+      return entry.warning || `已收錄 ${entry.matched} 首${analyzedNote}，未收錄 ${entry.unmatched} 首。`;
+    }
+
+    function entryTime(entry) {
+      const date = entry.createdAt instanceof Date ? entry.createdAt : new Date(entry.createdAt);
+      return `${String(date.getHours()).padStart(2,"0")}:${String(date.getMinutes()).padStart(2,"0")}`;
+    }
+
+    function profileCard(entry, order) {
+      const labels = { energy:"ENERGY", valence:"VALENCE", danceability:"DANCEABILITY", acousticness:"ACOUSTICNESS" };
+      const vector = entry.profile || {};
+      const metrics = Object.entries(labels).map(([key,label]) => {
+        const value = Number(vector[key] || 0);
+        return `<div class="metric"><div class="metric-top"><span>${label}</span><b>${value.toFixed(2)}</b></div>` +
+               `<div class="meter"><span style="width:${Math.round(value * 100)}%"></span></div></div>`;
+      }).join("");
       // 歌手名來自歌單標題，一律經過跳脫再進 DOM
-      target.innerHTML = (state.topArtists || []).slice(0, 4)
+      const artists = (entry.topArtists || []).slice(0, 4)
         .map((name, index) => `<span class="genre${index === 0 ? " active" : ""}">${escapeHtml(name)}</span>`)
         .join("") || `<span class="genre">尚未取得</span>`;
+      // 這輪已經推過歌，按鈕就該是回到那輪的今日推薦；還沒推過才是「開始探索」
+      const played = entry.tracks.length > 0;
+      const action = played ? "results" : "explore";
+      const actionLabel = played ? `查看推薦歌曲（${entry.tracks.length} 首）` : "開始探索";
+      return `<div class="panel profile-panel">
+        <div class="profile-meta">
+          <span class="profile-tag">${entry.sourceKind === "vibe" ? "情境" : "歌單"}</span>
+          <span>${order ? `第 ${order} 次 · ` : ""}${entryTime(entry)}</span>
+        </div>
+        <h3>${escapeHtml(entrySummary(entry))}</h3>
+        <div class="profile-grid">${metrics}</div>
+        <div class="genre-title">${entry.sourceKind === "vibe" ? "起點歌手" : "常聽歌手"}</div>
+        <div class="genres">${artists}</div>
+        <div class="match-note">${escapeHtml(entryNote(entry))}</div>
+        <button class="button primary full" type="button" data-entry="${entry.id}" data-action="${action}">${escapeHtml(actionLabel)}</button>
+      </div>`;
+    }
+
+    function renderProfiles() {
+      const track = $("profile-track");
+      const dots = $("profile-dots");
+      if (!track) return;
+      const ordered = galleryEntries();             // 建立順序，用來編「第幾次」
+      const cards = [...ordered].reverse();         // 畫面順序：最新的擺第一張
+      state.cards = cards.map(entry => entry.id);
+      $("profile-empty").hidden = cards.length > 0;
+      dots.hidden = cards.length < 2;
+      if (!cards.length) {
+        $("profile-lead").textContent = "先解析歌單或單曲，建立你的品味輪廓。";
+        track.innerHTML = "";
+        dots.innerHTML = "";
+        return;
+      }
+      $("profile-lead").textContent = state.previewId
+        ? "來自你剛剛解析的品味輪廓。"
+        : cards.length > 1
+          ? `這次造訪一共留下 ${cards.length} 份品味輪廓，拖動卡片就能翻到別輪的推薦。`
+          : "來自你這次分析的品味輪廓。";
+      track.innerHTML = cards.map(entry =>
+        profileCard(entry, state.previewId ? 0 : ordered.indexOf(entry) + 1)).join("");
+      dots.innerHTML = cards.map((entry, index) =>
+        `<button class="profile-dot" type="button" data-dot="${index}" ` +
+        `aria-label="第 ${index + 1} 張品味卡片" aria-current="${index === 0}"></button>`).join("");
+      // 預設停在剛才那張；找不到就停在最新的那張
+      const wanted = state.cards.indexOf(state.activeId);
+      state.cardIndex = wanted >= 0 ? wanted : 0;
+      layoutCarousel(false);
+    }
+
+    // 把選中的卡片挪到正中間。位移用實際量到的版面值算，卡片高矮寬窄不同也對得準。
+    function layoutCarousel(animate = true) {
+      const view = $("profile-carousel");
+      const track = $("profile-track");
+      if (!view || !track || !view.clientWidth) return;
+      const cards = [...track.children];
+      if (!cards.length) return;
+      const index = Math.min(Math.max(state.cardIndex, 0), cards.length - 1);
+      state.cardIndex = index;
+      const card = cards[index];
+      const offset = view.clientWidth / 2 - (card.offsetLeft + card.offsetWidth / 2);
+      state.cardOffset = offset;
+      if (!animate) track.classList.add("dragging");
+      track.style.transform = `translateX(${offset}px)`;
+      cards.forEach((element, position) => element.classList.toggle("current", position === index));
+      [...$("profile-dots").children].forEach((dot, position) =>
+        dot.setAttribute("aria-current", String(position === index)));
+      if (!animate) requestAnimationFrame(() => track.classList.remove("dragging"));
+    }
+
+    function moveCarousel(delta) {
+      const total = state.cards?.length || 0;
+      if (total < 2) return;
+      state.cardIndex = Math.min(Math.max(state.cardIndex + delta, 0), total - 1);
+      layoutCarousel(true);
     }
 
     function renderTasteStrip() {
       const strip = $("taste-strip");
       if (!strip) return;
-      const vector = state.profile || {};
+      const vector = activeEntry()?.profile || {};
       const labels = { energy:"ENERGY", valence:"VALENCE", acousticness:"ACOUSTIC" };
-      const previous = state.previousProfile || {};
+      const previous = activeEntry()?.previousProfile || {};
       strip.innerHTML = Object.entries(labels).map(([key, label]) => {
         const value = Number(vector[key] || 0);
         const moved = previous[key] !== undefined && Math.abs(previous[key] - value) > 0.001;
@@ -560,22 +733,26 @@
     async function recommend(prompt) {
       if (!prompt.trim()) return showDialog("需要一點線索", "請描述你現在想聽的氛圍。");
       // 入口頁同時填了連結時先建品味；只寫情境就直接送出，後端會自己讀出氛圍。
-      if (!state.sessionId && $("playlist").value.trim()) {
+      if (!activeEntry()?.sessionId && $("playlist").value.trim()) {
         await createSession($("playlist").value.trim());
-        if (!state.sessionId) return;
+        if (!activeEntry()?.sessionId) return;
       }
-      state.lastPrompt = prompt.trim();
+      // 純情境時後端才會建 session，這裡先開一張空卡片接住這輪的歌，收到 session 事件再補齊
+      const entry = activeEntry() || newEntry({ sourceKind:"vibe" });
+      entry.lastPrompt = prompt.trim();
+      entry.tracks = [];
+      entry.lastRound = null;
+      entry.selected = null;
       showView("thinking");
       renderSteps("parse");
-      state.tracks = [];
       if (MOCK_MODE) return mockRecommend();
       try {
         const response = await fetch("/api/recommend", {
           method:"POST",
           headers:{ "Content-Type":"application/json" },
-          body:JSON.stringify(state.sessionId
-            ? { session_id:state.sessionId, prompt:state.lastPrompt }
-            : { prompt:state.lastPrompt })
+          body:JSON.stringify(entry.sessionId
+            ? { session_id:entry.sessionId, prompt:entry.lastPrompt }
+            : { prompt:entry.lastPrompt })
         });
         await readEventStream(response, {
           thinking(data) {
@@ -584,25 +761,30 @@
           },
           // 只給情境時，session 是後端建的——回饋要用這個 id
           session(data) {
-            state.sessionId = data.session_id;
-            state.sourceKind = "vibe";
-            state.vibe = data.vibe || "";
-            state.seedSource = data.seed_source || "vibe";
-            state.previousProfile = null;
-            state.profile = data.vector || null;
-            state.topArtists = data.seed_artists || [];
-            state.matched = 0;
-            state.unmatched = 0;
-            state.analyzed = 0;
-            renderProfile();
+            let target = activeEntry();
+            // 後端另開了 session 就是另一份品味，不能蓋掉手上這張卡
+            if (!target || (target.sessionId && target.sessionId !== data.session_id)) {
+              target = newEntry({ lastPrompt:entry.lastPrompt });
+            }
+            Object.assign(target, {
+              sessionId:data.session_id, sourceKind:"vibe", vibe:data.vibe || "",
+              seedSource:data.seed_source || "vibe", previousProfile:null,
+              profile:data.vector || null, topArtists:data.seed_artists || [],
+              warning:null, matched:0, unmatched:0, analyzed:0,
+            });
+            renderTasteStrip();
           },
           track(data) {
-            if (!state.tracks.length) renderSteps("verify");
-            state.tracks.push(data);
+            const target = activeEntry();
+            if (!target) return;
+            if (!target.tracks.length) renderSteps("verify");
+            target.tracks.push(data);
           },
           error(data) { throw new Error(data.message); },
           done(data) {
-            state.lastRound = data;
+            const target = activeEntry();
+            if (target) target.lastRound = data;
+            state.previewId = null;
             renderSteps("explain");
             setTimeout(() => {
               renderResults();
@@ -611,6 +793,8 @@
           }
         });
       } catch (error) {
+        // 沒讀到任何輪廓的空卡片留著只會變成品味頁上的一張白卡
+        if (!entry.profile && !entry.tracks.length) dropEntry(entry);
         showView("entry");
         showDialog("探索暫停", errorMessage(error));
       }
@@ -621,43 +805,52 @@
         renderSteps(step);
         await wait(430);
       }
-      state.tracks = mockTracks.map(track => ({ ...track, features:{ ...track.features } }));
+      const entry = activeEntry() || newEntry({ sourceKind:"vibe" });
+      entry.tracks = mockTracks.map(track => ({ ...track, features:{ ...track.features } }));
       renderResults();
       showView("results");
     }
 
     function renderResults() {
+      const entry = activeEntry();
       renderTasteStrip();
       renderVibeNote();
       renderRoundNote();
-      if (!state.tracks.length) {
+      if (!entry?.tracks.length) {
         // 一首都沒有時，原因幾乎都不是「描述不好」——別叫使用者去改一個沒問題的描述
-        const round = state.lastRound || {};
+        const round = entry?.lastRound || {};
         const message = (round.search_down || round.cache_only)
           ? "YouTube 的搜尋額度暫時用完了，這輪沒辦法確認任何一首能不能播。額度重置後再試一次。"
           : "這次沒有找到可播放曲目，換個描述再試一次。";
         $("tracks").innerHTML = `<div class="empty">${escapeHtml(message)}</div>`;
         return;
       }
-      $("tracks").innerHTML = state.tracks.map((track,index) => `
-        <article class="track" data-index="${index}" tabindex="0" role="button" aria-label="播放 ${escapeHtml(track.title)}">
+      // 喜歡過的那幾首在重排後仍要看得出來：重繪會把 DOM 換掉，按下的狀態只能從資料重建
+      const liked = new Set(entry.liked || []);
+      $("tracks").innerHTML = entry.tracks.map((track,index) => {
+        const isLiked = liked.has(track.video_id);
+        return `
+        <article class="track${isLiked ? " liked" : ""}" data-index="${index}" tabindex="0" role="button" aria-label="播放 ${escapeHtml(track.title)}">
           <img src="${escapeAttr(track.thumbnail)}" alt="" width="128" height="72" loading="lazy">
           <div><h3>${escapeHtml(track.title)}</h3><p>${escapeHtml(track.artist)}</p></div>
           <div class="feedback">
-            <button class="vote" data-vote="up" aria-pressed="false" aria-label="喜歡這首">喜歡</button>
+            <button class="vote" data-vote="up" aria-pressed="${isLiked}"${isLiked ? " disabled" : ""} aria-label="喜歡這首">${isLiked ? "已喜歡" : "喜歡"}</button>
             <button class="vote" data-vote="down" aria-pressed="false" aria-label="不喜歡這首">略過</button>
           </div>
-        </article>`).join("");
-      selectTrack(0);
+        </article>`;
+      }).join("");
+      // 卡片留下來了，正在放的那首也該留著——按個喜歡就被跳回第一首會像是被打斷
+      const playing = entry.tracks.findIndex(track => track.video_id === playingVideoId);
+      selectTrack(playing >= 0 ? playing : 0);
     }
 
     // 只湊到幾首時要講原因。少給歌又不解釋，看起來就像推薦引擎壞了
     function renderRoundNote() {
       const note = $("round-note");
       if (!note) return;
-      const round = state.lastRound || {};
+      const round = activeEntry()?.lastRound || {};
       const wanted = round.wanted || 5;
-      const got = state.tracks.length;
+      const got = activeEntry()?.tracks.length || 0;
       // 一首都沒有時由空狀態那句說明，這裡不必再講一次
       note.hidden = got >= wanted || got === 0;
       if (note.hidden) return;
@@ -670,13 +863,14 @@
     function renderVibeNote() {
       const note = $("vibe-note");
       if (!note) return;
-      note.hidden = state.sourceKind !== "vibe" || !state.vibe;
+      const entry = activeEntry();
+      note.hidden = entry?.sourceKind !== "vibe" || !entry.vibe;
       if (note.hidden) return;
       // 起點被換成備援清單時要說出來——推薦的來源變了，使用者有權知道
-      const fallback = state.seedSource === "fallback"
+      const fallback = entry.seedSource === "fallback"
         ? "<br>曲庫裡沒有這段情境的起點歌手，這次是從備援清單裡挑最貼近的曲目出發。"
         : "";
-      note.innerHTML = `讀到的氛圍：<b>${escapeHtml(state.vibe)}</b>${fallback}`;
+      note.innerHTML = `讀到的氛圍：<b>${escapeHtml(entry.vibe)}</b>${fallback}`;
     }
 
     const FEATURE_LABELS = { energy:"能量", valence:"情緒明亮度", danceability:"律動感",
@@ -700,10 +894,16 @@
       return (scale.find(([bound]) => value < bound) || scale[scale.length - 1])[1];
     }
 
+    // 重繪後要把播放位置接回去，但重排過的索引已經不是原來那首了，所以認 video_id
+    let playingVideoId = null;
+
     function selectTrack(index) {
-      const track = state.tracks[index];
+      const entry = activeEntry();
+      const track = entry?.tracks[index];
       if (!track) return;
-      state.selected = index;
+      entry.selected = index;
+      playingVideoId = track.video_id;
+      saveState();
       document.querySelectorAll(".track").forEach((el,i) => el.classList.toggle("selected", i === index));
       $("video").innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(track.video_id)}?rel=0&playsinline=1" title="${escapeAttr(track.title)}" allow="accelerometer; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>`;
       $("now-title").textContent = track.title;
@@ -717,15 +917,39 @@
       }).join("");
     }
 
+    // 後端每次重排都只回傳「還沒投過票的候選」，喜歡過的那幾首得自己釘回原位才不會憑空消失
+    function mergeLiked(previous, reranked, likedIds) {
+      const liked = new Set(likedIds || []);
+      if (!liked.size) return reranked;
+      const fresh = reranked.filter(track => !liked.has(track.video_id));
+      const merged = [];
+      previous.forEach((track, index) => { if (liked.has(track.video_id)) merged[index] = track; });
+      for (let i = 0; fresh.length; i++) if (merged[i] === undefined) merged[i] = fresh.shift();
+      return merged.filter(Boolean);
+    }
+
     async function feedback(index, vote, button) {
-      const track = state.tracks[index];
+      const entry = activeEntry();
+      const track = entry?.tracks[index];
       if (!track || button.disabled) return;
       button.disabled = true;
       button.setAttribute("aria-pressed","true");
+      // 喜歡是「記下來」，不是「聽完了」：卡片留在原位，只有略過才把它收走
+      const keep = vote === "up";
+      const likedIds = entry.liked || (entry.liked = []);
+      // 喜歡過的那首後端已經從這一輪移掉了，再送一次票只會查無此曲；這裡的略過只是把卡片收起來
+      if (!keep && likedIds.includes(track.video_id)) {
+        entry.liked = likedIds.filter(id => id !== track.video_id);
+        entry.tracks = entry.tracks.filter(item => item.video_id !== track.video_id);
+        renderResults();
+        saveState();
+        return;
+      }
+      if (keep && !likedIds.includes(track.video_id)) likedIds.push(track.video_id);
       if (MOCK_MODE) {
         await wait(350);
-        if (vote === "down") {
-          state.tracks.push(state.tracks.splice(index,1)[0]);
+        if (!keep) {
+          entry.tracks.push(entry.tracks.splice(index,1)[0]);
         }
         renderResults();
         return;
@@ -734,23 +958,27 @@
         const response = await fetch("/api/feedback", {
           method:"POST",
           headers:{ "Content-Type":"application/json" },
-          body:JSON.stringify({ session_id:state.sessionId, video_id:track.video_id, vote })
+          body:JSON.stringify({ session_id:entry.sessionId, video_id:track.video_id, vote })
         });
         const reranked = [];
         await readEventStream(response, {
           profile(data) {
-            state.previousProfile = state.profile;
-            state.profile = data.updated_profile;
-            renderProfile();
+            entry.previousProfile = entry.profile;
+            entry.profile = data.updated_profile;
+            renderTasteStrip();
           },
           track(data) { reranked.push(data); },
           done() {
-            state.tracks = reranked;
+            entry.tracks = mergeLiked(entry.tracks, reranked, entry.liked);
             renderResults();
+            saveState();
           }
         });
       } catch (error) {
+        // 沒送出去就不算數：把按鈕與喜歡紀錄都退回按下之前
         button.disabled = false;
+        button.setAttribute("aria-pressed","false");
+        if (keep) entry.liked = likedIds.filter(id => id !== track.video_id);
         showDialog("回饋未送出", errorMessage(error));
       }
     }
@@ -761,12 +989,86 @@
     function escapeAttr(value) { return escapeHtml(value || ""); }
     function wait(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
+    // --- 品味卡片的拖移 ---
+    let drag = null, dragMoved = false;
+    const carousel = $("profile-carousel");
+    carousel.addEventListener("pointerdown", event => {
+      if (event.button > 0 || (state.cards?.length || 0) < 2) return;
+      drag = { x:event.clientX, base:state.cardOffset, id:event.pointerId };
+      dragMoved = false;
+      carousel.classList.add("dragging");
+      $("profile-track").classList.add("dragging");
+    });
+    carousel.addEventListener("pointermove", event => {
+      if (!drag) return;
+      const dx = event.clientX - drag.x;
+      if (!dragMoved && Math.abs(dx) < 5) return;
+      // 真的開始拖了才抓住指標，這樣從按鈕上按下去仍然是一次正常的點擊
+      // 指標已經離開就抓不住了，抓不到不影響拖移本身
+      if (!dragMoved) try { carousel.setPointerCapture?.(drag.id); } catch {}
+      dragMoved = true;
+      $("profile-track").style.transform = `translateX(${drag.base + dx}px)`;
+    });
+    function endDrag(event) {
+      if (!drag) return;
+      const dx = event.clientX - drag.x;
+      if (dragMoved) try { carousel.releasePointerCapture?.(drag.id); } catch {}
+      carousel.classList.remove("dragging");
+      $("profile-track").classList.remove("dragging");
+      drag = null;
+      // 拖過四分之一張卡就換下一張，沒過就彈回原位
+      const cards = [...$("profile-track").children];
+      const step = cards.length > 1 ? cards[1].offsetLeft - cards[0].offsetLeft : 0;
+      const threshold = Math.max(56, step * 0.25);
+      if (Math.abs(dx) > threshold) moveCarousel(dx < 0 ? 1 : -1);
+      else layoutCarousel(true);
+    }
+    carousel.addEventListener("pointerup", endDrag);
+    // 觸控拖完通常不會補一個 click，所以只在輪播內部擋，擋不到也不會誤傷 dot 或導覽列
+    carousel.addEventListener("click", event => {
+      if (!dragMoved) return;
+      dragMoved = false;
+      event.stopPropagation();
+      event.preventDefault();
+    }, true);
+    carousel.addEventListener("pointercancel", event => { if (drag) { dragMoved = false; endDrag(event); } });
+    // 卡片寬度跟著視窗變，位移得重算，不然選中的那張會歪掉
+    window.addEventListener("resize", () => { if ($("profile").classList.contains("active")) layoutCarousel(false); });
+
     document.addEventListener("click", event => {
       const go = event.target.closest("[data-go]");
       if (go) {
         const target = go.dataset.go;
-        if (target === "profile" && !state.profile) return showTasteEmptyDialog();
+        if (target === "profile") {
+          // 推過歌就算數：就算後端沒給到向量，那一輪也該在品味頁上看得到
+          if (!state.entries.some(entry => entry.profile || entry.tracks.length)) return showTasteEmptyDialog();
+          // 從導覽列進來看的是全部推薦過的輪次，不是剛才那張預覽
+          state.previewId = null;
+          pruneUnexplored(null);
+        }
         showView(target);
+      }
+      // 品味卡片上的按鈕：已經推過歌就回到那一輪的今日推薦，沒有才現場探索
+      const dot = event.target.closest("[data-dot]");
+      if (dot) {
+        state.cardIndex = Number(dot.dataset.dot);
+        return layoutCarousel(true);
+      }
+      const card = event.target.closest("[data-entry]");
+      if (card) {
+        const entry = state.entries.find(item => item.id === card.dataset.entry);
+        if (!entry) return;
+        state.activeId = entry.id;
+        state.previewId = null;
+        if (card.dataset.action === "results" && entry.tracks.length) {
+          // renderResults() 會接回上次播到哪，換到別輪時得先把那個位置換成這一輪的
+          playingVideoId = entry.tracks[entry.selected ?? 0]?.video_id || null;
+          renderResults();
+          showView("results");
+        } else {
+          recommend(continuePrompt());
+        }
+        return;
       }
       const track = event.target.closest(".track");
       const vote = event.target.closest(".vote");
@@ -777,6 +1079,10 @@
       }
     });
     document.addEventListener("keydown", event => {
+      if ($("profile").classList.contains("active") && !event.target.closest?.("input,textarea")) {
+        if (event.key === "ArrowLeft") { event.preventDefault(); moveCarousel(-1); }
+        if (event.key === "ArrowRight") { event.preventDefault(); moveCarousel(1); }
+      }
       const track = event.target.closest?.(".track");
       if (track && (event.key === "Enter" || event.key === " ")) {
         event.preventDefault();
@@ -793,22 +1099,24 @@
       createSession(value);
     });
     $("mood-submit").addEventListener("click", () => {
-      // 換了一段情境就得重讀氛圍：沿用上一輪的 session 等於沿用上一段情境的向量與種子。
-      // 歌單建立的 session 不在此列——那份品味本來就要跨情境留著。
-      if (state.sourceKind === "vibe") state.sessionId = null;
+      // 入口頁的「開始探索」是「開新的一輪」：只寫情境時一律另開一張卡片，
+      // 這一輪的五首歌才會在「我的品味」裡有自己的卡片，而不是併進上一份品味。
+      // 沿用手上那份品味要走卡片上的「開始探索」或結果頁的「重新探索」。
+      // 同時貼了連結就不歸零：那條路本來就要先解析連結，再從那份品味出發。
+      if (!$("playlist").value.trim()) state.activeId = null;
       recommend($("mood").value);
     });
-    $("profile-back").addEventListener("click", () => showView("results"));
     // 已經分析過的品味就是這輪的起點，不必再問一次情境
     function continuePrompt() {
-      return state.sourceKind === "vibe"
-        ? (state.lastPrompt || "延續剛才的氛圍")
-        : (state.lastPrompt || "從我的歌單品味出發，推薦有熟悉感但不重複的歌曲");
+      const entry = activeEntry();
+      return entry?.sourceKind === "vibe"
+        ? (entry.lastPrompt || "延續剛才的氛圍")
+        : (entry?.lastPrompt || "從我的歌單品味出發，推薦有熟悉感但不重複的歌曲");
     }
-    $("profile-submit").addEventListener("click", () => recommend(continuePrompt()));
     // 結果頁的「重新探索」是「再給我五首」，不是重貼連結；沒有品味資料時才回入口頁
     $("results-rerun").addEventListener("click", () => {
-      if (!state.profile && !state.sessionId) return showView("entry");
+      const entry = activeEntry();
+      if (!entry?.profile && !entry?.sessionId) return showView("entry");
       recommend(continuePrompt());
     });
     // 點空白處（遮罩本身）只關掉，不執行 CTA；那是「先不要」的意思。
@@ -835,14 +1143,29 @@
         $("health-content").innerHTML = ["youtube","reccobeats","llm","mongo"].map(key =>
           `<div class="health-row"><span>${key.toUpperCase()}</span><b>${labels[health[key]] || health[key] || "異常"}</b></div>`).join("") +
           `<div class="health-row"><span>QUOTA</span><b>${quota}</b></div>` +
-          (state.lastRound
-            ? `<div class="health-row"><span>DROPPED</span><b>${state.lastRound.dropped} 首（查不到／不可嵌入）</b></div>` +
-              `<div class="health-row"><span>CACHE HITS</span><b>${state.lastRound.cache_hits ?? 0}</b></div>`
+          (activeEntry()?.lastRound
+            ? `<div class="health-row"><span>DROPPED</span><b>${activeEntry().lastRound.dropped} 首（查不到／不可嵌入）</b></div>` +
+              `<div class="health-row"><span>CACHE HITS</span><b>${activeEntry().lastRound.cache_hits ?? 0}</b></div>`
             : "");
       } catch {
         $("health-content").textContent = "無法取得健康狀態";
       }
     });
+
+    // --- 還原上次留下的紀錄 ---
+    restoreState();
+    if (state.entries.length) {
+      renderTasteStrip();
+      const entry = activeEntry();
+      // 沒歌可放時別回結果頁：那頁的空狀態會說成「這次沒找到」，讀起來像剛探索失敗
+      if (restoredView === "results" && entry?.tracks.length) {
+        playingVideoId = entry.tracks[entry.selected ?? 0]?.video_id || null;
+        renderResults();
+        showView("results");
+      } else if (restoredView === "profile" || (restoredView === "results" && entry?.profile)) {
+        showView("profile");
+      }
+    }
 
     console.assert(escapeHtml("<Museek>") === "&lt;Museek&gt;", "HTML escaping must remain active");
     console.assert(steps.length === 5, "The recommendation flow must keep five visible stages");
