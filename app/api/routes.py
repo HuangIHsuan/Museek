@@ -61,10 +61,45 @@ def _sse_response(source) -> StreamingResponse:
     )
 
 
-@router.post("/session", response_model=SessionResponse)
-async def create_session(payload: SessionRequest, request: Request) -> SessionResponse:
+# 解析歌單要逐首查音訊特徵，50 首實測 70 秒以上。帶 Accept: text/event-stream
+# 的呼叫端會收到逐首的進度事件；其餘呼叫端維持原本的一次性 JSON，契約不變。
+_SESSION_ERRORS = {
+    InvalidPlaylistUrl: (400, "invalid_url", None),
+    youtube.PlaylistNotAccessible: (
+        404, "playlist_not_accessible",
+        "這個連結讀不到——歌單或影片可能是私人的、已刪除，或網址不完整。"
+        "請改為公開連結，或換一份歌單／一首歌再試。"),
+    youtube.ApiKeyRejected: (503, "youtube_key_rejected", _KEY_REJECTED_MESSAGE),
+    youtube.QuotaExceeded: (503, "quota_exceeded", "今天的 YouTube 查詢額度已用完，請稍後再試。"),
+}
+
+
+async def _session_progress(source) -> AsyncGenerator[str, None]:
+    """把建立工作階段的過程轉成 SSE。錯誤改用 error 事件送，不能再拋 HTTP 狀態碼。"""
+    try:
+        async for event, data in source:
+            yield _sse(event, data)
+    except tuple(_SESSION_ERRORS) as error:
+        _status, code, message = _SESSION_ERRORS[type(error)]
+        yield _sse("error", {"code": code, "message": message or str(error)})
+    except Exception:  # noqa: BLE001
+        log.exception("建立工作階段時發生未預期錯誤")
+        yield _sse("error", {"code": "internal_error", "message": "服務暫時無法使用，請稍後再試。"})
+
+
+@router.post("/session")
+async def create_session(payload: SessionRequest, request: Request):
     repo = request.app.state.repo
     quota: QuotaTracker = request.app.state.quota
+
+    if "text/event-stream" in (request.headers.get("accept") or ""):
+        return StreamingResponse(
+            _session_progress(pipeline.create_session_stream(repo, quota, payload.playlist_url)),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive",
+                     "X-Accel-Buffering": "no"},
+        )
+
     try:
         result = await pipeline.create_session(repo, quota, payload.playlist_url)
     except InvalidPlaylistUrl as error:

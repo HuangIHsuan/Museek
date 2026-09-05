@@ -103,6 +103,17 @@
     .profile-grid { display:grid; gap:13px; margin:22px 0 }
     .metric { padding:0; background:transparent }
     .metric-top { display:flex; justify-content:space-between; gap:10px; font:12px var(--mono) }
+    .parse-progress[hidden] { display:none }
+    .parse-progress { margin-top:11px }
+    .parse-bar { height:7px; border:1px solid var(--ink); background:var(--paper-2); overflow:hidden }
+    .parse-bar span { display:block; height:100%; width:0; background:var(--lime); transition:width .25s ease }
+    .parse-bar.indeterminate span { width:35%; animation:parse-sweep 1.1s ease-in-out infinite alternate }
+    @keyframes parse-sweep { from { margin-left:0 } to { margin-left:65% } }
+    .parse-label { display:flex; justify-content:space-between; gap:10px; margin-top:6px;
+                   color:var(--muted); font:12px/1.5 var(--mono) }
+    .parse-label b { color:var(--ink); font-weight:600; font-variant-numeric:tabular-nums }
+    @media (prefers-reduced-motion: reduce) { .parse-bar span { transition:none } .parse-bar.indeterminate span { animation:none; width:100% } }
+
     .meter { height:7px; margin-top:7px; border:1px solid var(--rule); border-radius:999px; background:var(--paper-2); overflow:hidden }
     .meter span { display:block; height:100%; background:var(--lime) }
     .metric:nth-child(even) .meter span { background:var(--ink) }
@@ -244,6 +255,13 @@
               <label for="playlist">公開 YouTube 歌單或單曲</label>
               <input id="playlist" type="url" inputmode="url" placeholder="貼上歌單或單曲連結，例如 https://youtu.be/..." autocomplete="url">
               <div class="field-help" id="playlist-help">歌單最多分析 50 首；也可以只貼一首歌，就以它當起點。</div>
+              <div class="parse-progress" id="parse-progress" hidden aria-live="polite">
+                <div class="parse-bar indeterminate" id="parse-bar" role="progressbar"
+                     aria-valuemin="0" aria-valuemax="100"><span></span></div>
+                <div class="parse-label">
+                  <span id="parse-label">準備中…</span><b id="parse-count"></b>
+                </div>
+              </div>
               <button class="button primary full" type="button" id="playlist-submit">解析連結</button>
             </div>
             <div class="divider">或</div>
@@ -524,15 +542,58 @@
       return data;
     }
 
+    function showParseProgress(on) {
+      $("parse-progress").hidden = !on;
+      if (!on) return;
+      const bar = $("parse-bar");
+      bar.classList.add("indeterminate");
+      bar.firstElementChild.style.width = "";
+      bar.removeAttribute("aria-valuenow");
+      $("parse-label").textContent = "讀取連結…";
+      $("parse-count").textContent = "";
+    }
+
+    function updateParseProgress(data) {
+      const bar = $("parse-bar");
+      $("parse-label").textContent = data.label || "處理中…";
+      // 知道總數之後才切成有刻度的進度條，在那之前維持不確定狀態
+      if (!data.total) return;
+      const percent = Math.round((data.done / data.total) * 100);
+      bar.classList.remove("indeterminate");
+      bar.firstElementChild.style.width = `${percent}%`;
+      bar.setAttribute("aria-valuenow", String(percent));
+      $("parse-count").textContent = `${data.done} / ${data.total}`;
+    }
+
+    // 解析歌單要逐首查音訊特徵，50 首會跑一分鐘以上。改讀 SSE 逐首回報進度，
+    // 使用者才知道系統還在動，而不是壞掉了。
+    async function sessionWithProgress(playlistUrl) {
+      const response = await fetch("/api/session", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json", "Accept":"text/event-stream" },
+        body:JSON.stringify({ playlist_url:playlistUrl })
+      });
+      let session = null, failure = null;
+      await readEventStream(response, {
+        progress(data) { updateParseProgress(data); },
+        error(data) { failure = new Error(data.message); },
+        session(data) { session = data; }
+      });
+      if (failure) throw failure;
+      if (!session) throw new Error("解析沒有完成，請再試一次。");
+      return session;
+    }
+
     async function createSession(playlistUrl) {
       const button = $("playlist-submit");
       button.disabled = true;
       button.textContent = "解析中...";
       $("playlist-help").classList.remove("error-text");
+      showParseProgress(true);
       try {
         const data = MOCK_MODE
           ? await mockSession(playlistUrl)
-          : await jsonPost("/api/session", { playlist_url:playlistUrl });
+          : await sessionWithProgress(playlistUrl);
         const fields = { sessionId:data.session_id, sourceKind:"playlist", vibe:null, seedSource:null,
                          previousProfile:null, profile:data.profile.vector,
                          topArtists:data.profile.top_artists || [], warning:data.profile.warning || null,
@@ -553,10 +614,14 @@
       } finally {
         button.disabled = false;
         button.textContent = "解析連結";
+        showParseProgress(false);
       }
 
       async function mockSession(playlistUrl) {
-        await wait(650);
+        for (let done = 1; done <= 12; done += 1) {
+          updateParseProgress({ done, total:12, label:`分析曲目 ${done}／12` });
+          await wait(55);
+        }
         if (playlistUrl.toLowerCase().includes("private")) {
           throw new Error("這份歌單目前是私人的，請改用公開連結。");
         }

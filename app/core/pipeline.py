@@ -236,6 +236,22 @@ async def _fetch_items(quota: QuotaTracker, kind: str, source_id: str) -> List[D
 
 
 async def create_session(repo, quota: QuotaTracker, playlist_url: str) -> Dict:
+    """建立工作階段並回傳結果。舊有的一次性 JSON 介面，行為不變。"""
+    result = None
+    async for event, payload in create_session_stream(repo, quota, playlist_url):
+        if event == "session":
+            result = payload
+    assert result is not None
+    return result
+
+
+async def create_session_stream(repo, quota: QuotaTracker, playlist_url: str
+                                ) -> AsyncGenerator[Tuple[str, Dict], None]:
+    """同樣的流程，但逐步 yield 進度。
+
+    逐首查音訊特徵是循序的外部請求，50 首實測要 70 秒以上。沒有進度回報的話
+    使用者只看得到一顆停住的按鈕，會以為當掉了。
+    """
     source = parse_source(playlist_url)
     kind, source_id = source.kind, source.id
 
@@ -252,11 +268,20 @@ async def create_session(repo, quota: QuotaTracker, playlist_url: str) -> Dict:
 
     budget = RecoveryBudget(get_settings().recovery_max_per_session)
     tracks: List[Dict] = []
-    for item in items:
+
+    total = len(items)
+    yield "progress", {"step": "fetched", "done": 0, "total": total,
+                       "label": f"讀到 {total} 首曲目"}
+
+    for index, item in enumerate(items, start=1):
         artist, title = split_artist_title(item.get("raw_title", ""), item.get("channel"))
         if not title:
+            yield "progress", {"step": "analyze", "done": index, "total": total,
+                               "label": f"分析曲目 {index}／{total}"}
             continue
         enriched = await _features_for(repo, artist, title, budget)
+        yield "progress", {"step": "analyze", "done": index, "total": total,
+                           "label": f"分析曲目 {index}／{total}：{title[:24]}"}
         tracks.append({
             "raw_title": item.get("raw_title", ""),
             "artist": artist,
@@ -269,6 +294,9 @@ async def create_session(repo, quota: QuotaTracker, playlist_url: str) -> Dict:
             # 有 id 沒特徵的那種只能當種子，不能算進品味向量
             "matched": bool((enriched or {}).get("features")),
         })
+
+    yield "progress", {"step": "profile", "done": total, "total": total,
+                       "label": "整理你的品味輪廓"}
 
     vector, popularity_mean, seen_artists, matched, unmatched, warning = profiler.build_profile(tracks)
     analyzed = sum(1 for t in tracks if t.get("source") == "analysis")
@@ -298,7 +326,7 @@ async def create_session(repo, quota: QuotaTracker, playlist_url: str) -> Dict:
         "expires_at": profile_expiry(),
     })
 
-    return {
+    yield "session", {
         "session_id": session_id,
         "profile": {"vector": vector, "popularity_mean": popularity_mean, "warning": warning,
                     "top_artists": _top_artists(tracks)},
