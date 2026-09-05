@@ -418,7 +418,7 @@ async def test_track_without_features_is_not_counted_as_matched(live_mode, repo,
     async def one_video(quota, kind, source_id):
         return [{"raw_title": "deca joins - 浴室", "channel": "deca joins", "video_id": "v1"}]
 
-    async def features_for(repo_, artist, title, budget=None):
+    async def features_for(repo_, artist, title, budget=None, searched=None):
         return {"recco_id": "catalog-id", "seed_id": None, "features": {},
                 "popularity": None, "source": "reccobeats"}
 

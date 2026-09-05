@@ -155,7 +155,8 @@ async def _recover_via_itunes(artist: str, title: str, have_id: Optional[str],
 
 
 async def _features_for(repo, artist: str, title: str,
-                        budget: Optional[RecoveryBudget] = None) -> Optional[Dict]:
+                        budget: Optional[RecoveryBudget] = None,
+                        searched: Optional[Dict[str, Optional[str]]] = None) -> Optional[Dict]:
     """取得單曲特徵。feature_cache 優先，未命中才對外查。
 
     對外查有兩條路：先查 ReccoBeats 曲庫，查不到才用試聽片段做音訊分析。
@@ -167,7 +168,11 @@ async def _features_for(repo, artist: str, title: str,
     stub_mode = get_settings().reccobeats_mode == "stub"
     key = cache_key(artist, title)
     cached = await repo.get_features([key])
-    if key in cached:
+    if key in cached and _is_fresh_miss(cached[key]):
+        # 查過、確定查不到的：短時間內不要再查一次。整份歌單重新解析時，
+        # 沒有這一層的話那些查不到的曲目會把整套失敗查詢（含 iTunes 補救）重跑一遍。
+        return None
+    if key in cached and cached[key].get("source") != "miss":
         row = cached[key]
         # 沒有 source 的是早期寫入的項目，一律當成 stub 看待
         source = row.get("source") or ("stub" if str(row.get("recco_id", "")).startswith("stub-") else "reccobeats")
@@ -186,7 +191,11 @@ async def _features_for(repo, artist: str, title: str,
         await repo.set_features(key, payload)
         return payload
 
-    recco_id = await reccobeats.search_track(artist, title)
+    # 這一輪預抓已經查過的就不要再查一次（含查不到的）
+    if searched is not None and key in searched:
+        recco_id = searched[key]
+    else:
+        recco_id = await reccobeats.search_track(artist, title)
     # 曲庫有這首歌但沒有特徵時也要走補救，recco_id 仍然留著當推薦種子
     features = (await reccobeats.get_audio_features([recco_id])).get(recco_id) if recco_id else None
     source, seed_id = "reccobeats", None
@@ -196,6 +205,9 @@ async def _features_for(repo, artist: str, title: str,
         )
     if not features:
         if not (recco_id or seed_id):
+            # 記成 miss，但只記一天——特徵之後可能補得上，長期記下來會擋住重試
+            await repo.set_features(key, {"source": "miss", "features": {},
+                                          "missed_at": datetime.now(tz=timezone.utc).isoformat()})
             return None
         # 特徵補不上、但曲庫裡認得這首歌：id 還是能當推薦種子。
         # 這裡回 None 的話連種子都會一起丟掉，單曲入口就完全沒得推薦了。
@@ -207,6 +219,86 @@ async def _features_for(repo, artist: str, title: str,
                "popularity": None, "source": source}
     await repo.set_features(key, payload)
     return payload
+
+
+async def _prefetch_features(repo, items: List[Dict], on_progress) -> Dict[str, Optional[str]]:
+    """先把整份歌單的特徵批次查好、寫進快取，之後逐首處理時就幾乎不用再對外。
+
+    原本每首歌要兩次 ReccoBeats 請求（search 一次、audio-features 一次），
+    50 首就是 100 次循序請求、實測 75 秒。audio-features 有批次端點
+    （一次 40 個 id），所以第二種請求可以從 50 次壓到 2 次。
+
+    search 沒有批次端點，只能一首一首查——那部分靠節流器控制送出節奏，
+    在不觸發 429 的前提下盡量快（ReccoBeats 的限制是針對瞬間併發，
+    不是每秒總量，見 NOTES #39）。
+    """
+    if get_settings().reccobeats_mode == "stub":
+        return {}
+
+    pending = []          # [(cache_key, artist, title)]
+    for item in items:
+        artist, title = split_artist_title(item.get("raw_title", ""), item.get("channel"))
+        if not title:
+            continue
+        pending.append((cache_key(artist, title), artist, title))
+
+    cached = await repo.get_features([k for k, _, _ in pending])
+    todo = [(k, a, t) for k, a, t in pending
+            if k not in cached or not (_is_fresh_miss(cached[k]) or cached[k].get("features"))]
+    total = len(todo)
+    # cache_key -> recco_id，查過但找不到的記成 None。
+    # 沒有這一份的話，後面逐首處理時會把同樣的 search 再打一次（實測請求數反而變多）。
+    searched: Dict[str, Optional[str]] = {}
+    if not todo:
+        return searched
+
+    # 第一階段：找出每首的 recco_id。同時發出多個請求把網路延遲重疊起來，
+    # 送出節奏由節流器控制——ReccoBeats 擋的是「同時開始」，不是總量。
+    found: Dict[str, tuple] = {}       # recco_id -> (cache_key, artist, title)
+    done = 0
+
+    async def resolve(key: str, artist: str, title: str) -> None:
+        nonlocal done
+        recco_id = await reccobeats.search_track(artist, title)
+        searched[key] = recco_id
+        if recco_id:
+            found[recco_id] = (key, artist, title)
+        done += 1
+        await on_progress(done, total, title)
+
+    await asyncio.gather(*(resolve(k, a, t) for k, a, t in todo))
+
+    # 第二階段：一次把所有特徵批次要回來
+    if not found:
+        return searched
+    features = await reccobeats.get_audio_features(list(found))
+    for recco_id, feature in features.items():
+        key, _artist, _title = found.get(recco_id, (None, None, None))
+        if key and feature:
+            await repo.set_features(key, {"recco_id": recco_id, "seed_id": None,
+                                          "features": feature, "popularity": None,
+                                          "source": "reccobeats"})
+    return searched
+
+
+MISS_TTL_SECONDS = 24 * 3600
+
+
+def _is_fresh_miss(row: Dict) -> bool:
+    """這筆是不是「還在有效期內的查無此曲」。"""
+    if row.get("source") != "miss":
+        return False
+    raw = row.get("missed_at")
+    if not raw:
+        return True
+    try:
+        missed_at = datetime.fromisoformat(str(raw))
+    except ValueError:
+        return True
+    if missed_at.tzinfo is None:
+        missed_at = missed_at.replace(tzinfo=timezone.utc)
+    age = (datetime.now(tz=timezone.utc) - missed_at).total_seconds()
+    return age < MISS_TTL_SECONDS
 
 
 # --- /api/session ------------------------------------------------------------
@@ -273,15 +365,27 @@ async def create_session_stream(repo, quota: QuotaTracker, playlist_url: str
     yield "progress", {"step": "fetched", "done": 0, "total": total,
                        "label": f"讀到 {total} 首曲目"}
 
-    for index, item in enumerate(items, start=1):
+    # 批次預抓特徵。進度由這一段回報——時間幾乎都花在這裡。
+    updates: List[Dict] = []
+
+    async def report(done: int, count: int, title: str) -> None:
+        updates.append({"step": "analyze", "done": done, "total": count,
+                        "label": f"分析曲目 {done}／{count}：{title[:24]}"})
+
+    prefetch = asyncio.create_task(_prefetch_features(repo, items, report))
+    while not prefetch.done():
+        await asyncio.sleep(0.15)
+        while updates:
+            yield "progress", updates.pop(0)
+    searched = await prefetch
+    while updates:
+        yield "progress", updates.pop(0)
+
+    for item in items:
         artist, title = split_artist_title(item.get("raw_title", ""), item.get("channel"))
         if not title:
-            yield "progress", {"step": "analyze", "done": index, "total": total,
-                               "label": f"分析曲目 {index}／{total}"}
             continue
-        enriched = await _features_for(repo, artist, title, budget)
-        yield "progress", {"step": "analyze", "done": index, "total": total,
-                           "label": f"分析曲目 {index}／{total}：{title[:24]}"}
+        enriched = await _features_for(repo, artist, title, budget, searched)
         tracks.append({
             "raw_title": item.get("raw_title", ""),
             "artist": artist,

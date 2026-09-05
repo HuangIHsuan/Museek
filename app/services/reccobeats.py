@@ -28,7 +28,7 @@ from typing import Dict, List, Optional, Sequence
 from app.config import get_settings
 from app.core.normalize import name_key, same_artist, same_title, title_variants
 from app.services import stub_data
-from app.services.http import get_json, post_file
+from app.services.http import get_json, pacer, post_file
 
 log = logging.getLogger("museek.reccobeats")
 
@@ -109,6 +109,7 @@ async def search_track(artist: str, title: str,
             data = await get_json(
                 f"{settings.reccobeats_base_url}/v1/track/search",
                 params={"searchText": form.strip(), "size": 10},
+                pace=pacer("reccobeats"),
             )
             _mark(True)
         except Exception as error:  # noqa: BLE001
@@ -133,6 +134,7 @@ async def search_artist(name: str) -> Optional[str]:
         data = await get_json(
             f"{settings.reccobeats_base_url}/v1/artist/search",
             params={"searchText": name.strip(), "size": 5},
+            pace=pacer("reccobeats"),
         )
         _mark(True)
     except Exception as error:  # noqa: BLE001
@@ -158,6 +160,7 @@ async def artist_tracks(artist_id: str) -> List[Dict]:
             data = await get_json(
                 f"{settings.reccobeats_base_url}/v1/artist/{artist_id}/track",
                 params={"size": 50, "page": page},
+                pace=pacer("reccobeats"),
             )
             _mark(True)
         except Exception as error:  # noqa: BLE001
@@ -231,6 +234,7 @@ async def get_audio_features(recco_ids: List[str]) -> Dict[str, Dict]:
             data = await get_json(
                 f"{settings.reccobeats_base_url}/v1/audio-features",
                 params={"ids": ",".join(chunk)},
+                pace=pacer("reccobeats"),
             )
             _mark(True)
         except Exception as error:  # noqa: BLE001
@@ -264,6 +268,7 @@ async def get_recommendations(seed_ids: List[str], limit: int = 50) -> List[Dict
         data = await get_json(
             f"{settings.reccobeats_base_url}/v1/track/recommendation",
             params={"seeds": ",".join(seed_ids[:5]), "size": limit},
+            pace=pacer("reccobeats"),
         )
         _mark(True)
     except Exception as error:  # noqa: BLE001
