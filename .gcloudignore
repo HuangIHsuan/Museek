@@ -2,7 +2,9 @@
 .venv/
 .env
 .env.backup
-data/
+# data/ 大多是本機快取，但 vibe_seeds.json 是執行時要用的資料，必須進 image
+data/*
+!data/vibe_seeds.json
 logs/
 tests/
 deck/

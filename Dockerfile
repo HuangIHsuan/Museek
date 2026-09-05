@@ -14,6 +14,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 COPY scripts ./scripts
+# 備援種子池是執行時資料，不是開發檔案
+COPY data/vibe_seeds.json ./data/vibe_seeds.json
 COPY entrypoint.sh .
 RUN chmod +x entrypoint.sh
 
