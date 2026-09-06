@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any, Optional
 
 import httpx
@@ -13,6 +14,52 @@ import httpx
 from app.config import get_settings
 
 log = logging.getLogger("museek.http")
+
+
+class Pacer:
+    """限制對單一服務的送出速度。
+
+    ReccoBeats 的限制數字不公開，但實測結果很明確：**瞬間併發才是問題，
+    不是每秒總量**。同時丟 4 個就開始收 429，丟 8 個全滅；
+    但均勻間隔的話 8 req/s 也全數通過。
+
+    因此這裡管兩件事：兩次送出之間的最小間隔，以及同時在飛的上限。
+    """
+
+    def __init__(self, min_interval: float, max_inflight: int) -> None:
+        self._min_interval = min_interval
+        self._sem = asyncio.Semaphore(max_inflight)
+        self._lock = asyncio.Lock()
+        self._next_at = 0.0
+
+    async def __aenter__(self):
+        await self._sem.acquire()
+        async with self._lock:
+            now = time.monotonic()
+            wait = self._next_at - now
+            if wait > 0:
+                await asyncio.sleep(wait)
+                now = time.monotonic()
+            self._next_at = now + self._min_interval
+        return self
+
+    async def __aexit__(self, *_exc) -> None:
+        self._sem.release()
+
+    async def back_off(self, seconds: float) -> None:
+        """收到 429 之後，把所有後續請求往後推。"""
+        async with self._lock:
+            self._next_at = max(self._next_at, time.monotonic() + seconds)
+
+
+# ReccoBeats 專用。保守值：5 req/s、最多 2 個同時在飛（實測 8 req/s 才開始有風險）
+_pacers: dict = {}
+
+
+def pacer(name: str, min_interval: float = 0.3, max_inflight: int = 2) -> Pacer:
+    if name not in _pacers:
+        _pacers[name] = Pacer(min_interval, max_inflight)
+    return _pacers[name]
 _client: Optional[httpx.AsyncClient] = None
 
 
@@ -34,13 +81,33 @@ async def close_client() -> None:
     _client = None
 
 
-async def get_json(url: str, *, params: Any = None, headers: Any = None, retries: int = 1) -> Any:
-    """GET 並回傳 JSON。逾時／5xx／429 重試指定次數，仍失敗就往上拋。"""
+async def get_json(url: str, *, params: Any = None, headers: Any = None, retries: int = 1,
+                   pace: Optional[Pacer] = None) -> Any:
+    """GET 並回傳 JSON。逾時／5xx／429 重試指定次數，仍失敗就往上拋。
+
+    pace 給定時，送出會受該服務的節流器管制；收到 429 會照 Retry-After 退避，
+    並把後續請求一起往後推（ReccoBeats 文件明確要求這樣做）。
+    """
     last_error: Optional[Exception] = None
     for attempt in range(retries + 1):
         try:
-            response = await client().get(url, params=params, headers=headers)
-            if response.status_code in (429, 500, 502, 503, 504):
+            if pace is not None:
+                async with pace:
+                    response = await client().get(url, params=params, headers=headers)
+            else:
+                response = await client().get(url, params=params, headers=headers)
+            if response.status_code == 429:
+                delay = _retry_after(response, attempt)
+                if pace is not None:
+                    await pace.back_off(delay)
+                log.warning("%s 回 429，等待 %.1f 秒後重試", url, delay)
+                last_error = httpx.HTTPStatusError(
+                    "429", request=response.request, response=response)
+                if attempt < retries:
+                    await asyncio.sleep(delay)
+                    continue
+                raise last_error
+            if response.status_code in (500, 502, 503, 504):
                 raise httpx.HTTPStatusError(
                     f"{response.status_code} from {url}", request=response.request, response=response
                 )
@@ -55,6 +122,17 @@ async def get_json(url: str, *, params: Any = None, headers: Any = None, retries
                 await asyncio.sleep(0.4 * (attempt + 1))
     assert last_error is not None
     raise last_error
+
+
+def _retry_after(response: "httpx.Response", attempt: int) -> float:
+    """優先照 Retry-After，沒有才退回遞增退避。上限 30 秒，避免整條流程卡死。"""
+    raw = response.headers.get("retry-after")
+    if raw:
+        try:
+            return min(30.0, max(0.5, float(raw)))
+        except ValueError:
+            pass
+    return min(30.0, 1.0 * (attempt + 1))
 
 
 async def get_bytes(url: str, *, max_bytes: int, timeout: Optional[float] = None) -> bytes:

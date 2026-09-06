@@ -13,7 +13,14 @@ import time
 
 import httpx
 
-DEFAULT_PLAYLIST = "https://www.youtube.com/playlist?list=UU4eYXhJI4-7wSWc8UNRwD4A"
+# Bon Iver 官方頻道的上傳清單。挑這一份的理由：曲名是正規的「歌手 - 歌名」，
+# 在 ReccoBeats 曲庫查得到，跑得出真的推薦。
+#
+# 原本用的是 NPR Music 頻道（Tiny Desk 那種），曲名長得像
+# 「Mon Rovîa: Tiny Desk Concert」——比對率永遠是 0，沒有種子就推薦不了，
+# 每次不帶參數跑都會有 5 項假失敗。stub 模式對任何字串都給得出特徵，
+# 所以這個問題在接上真實 ReccoBeats 之前看不出來。
+DEFAULT_PLAYLIST = "https://www.youtube.com/playlist?list=UUci2c90HJbY0VAS3_eLF3Wg"
 PROMPT = "下雨天開車想放空，類似我平常聽的但不要太吵"
 VIBE_PROMPT = "剛下班的捷運上，想把整天的吵鬧關掉"
 
