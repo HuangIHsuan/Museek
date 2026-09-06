@@ -31,7 +31,7 @@
     .shell { min-height:100dvh }
     .topbar { height:64px; position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:24px; padding:0 max(20px,calc((100vw - 1180px)/2)); border-bottom:1px solid var(--ink); background:rgba(242,241,236,.96) }
     .brand { border:0; background:none; padding:0; display:flex; align-items:center; gap:9px; font:900 19px/1 var(--display); letter-spacing:-.04em; cursor:pointer }
-    .mark { display:grid; place-items:center; width:22px; height:22px; border-radius:2px; background:var(--ink); color:var(--paper); font:900 13px/1 var(--display) }
+    .mark { display:block; width:24px; height:24px; flex:none }
     .nav-actions { margin-left:auto; display:flex; align-items:center; gap:12px }
     .nav-link { border:0; background:none; color:var(--muted); font-size:13px; cursor:pointer }
     .button { min-height:44px; border:1px solid var(--ink); border-radius:var(--radius); padding:10px 17px; font-weight:800; cursor:pointer; transition:transform .12s ease,box-shadow .12s ease,background .12s ease }
@@ -252,7 +252,7 @@
 <body>
   <div class="shell">
     <header class="topbar">
-      <button class="brand" data-go="home" aria-label="回到 Museek 首頁"><span class="mark">M</span>MUSEEK</button>
+      <button class="brand" data-go="home" aria-label="回到 Museek 首頁"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect width="24" height="24" rx="3" fill="#14140f"/><rect x="3.4" y="4.5" width="2.4" height="15.0" rx=".6" fill="#e8009c"/><rect x="7.1" y="8.5" width="2.4" height="11.0" rx=".6" fill="#b6f414"/><rect x="10.8" y="13.5" width="2.4" height="6.0" rx=".6" fill="#b6f414"/><rect x="14.5" y="8.5" width="2.4" height="11.0" rx=".6" fill="#b6f414"/><rect x="18.2" y="4.5" width="2.4" height="15.0" rx=".6" fill="#e8009c"/></svg>MUSEEK</button>
       <div class="nav-actions">
         <button class="nav-link qr-nav" id="qr-nav" aria-haspopup="dialog">QR Code</button>
         <button class="nav-link" id="taste-nav" data-go="profile">我的品味</button>
@@ -378,16 +378,12 @@
   </div>
 
   <div class="overlay" id="qr-overlay" hidden>
-    <div class="qr-card" role="dialog" aria-modal="true" aria-labelledby="qr-title">
+    <div class="qr-card" id="qr-card" role="dialog" aria-modal="true" tabindex="-1" aria-labelledby="qr-title">
       <h2 id="qr-title">用手機掃開</h2>
       <p>掃完在 Safari 按「分享 → 加入主畫面」，就會變成一支 app。</p>
       <div class="qr-frame" id="qr-frame"><span class="qr-status">產生中…</span></div>
       <div class="qr-url" id="qr-url"></div>
       <div class="qr-note" id="qr-note" hidden></div>
-      <div class="qr-actions">
-        <a class="button ghost" id="qr-guide" href="/install" target="_blank" rel="noopener">完整步驟</a>
-        <button class="button primary" id="qr-close" type="button">關閉</button>
-      </div>
     </div>
   </div>
 
@@ -1022,7 +1018,8 @@
     // 重繪後要把播放位置接回去，但重排過的索引已經不是原來那首了，所以認 video_id
     let playingVideoId = null;
 
-    function selectTrack(index) {
+    // autoplay 只有使用者真的點了卡片才給：瀏覽器也只認這個手勢，重繪時硬塞會被擋下來
+    function selectTrack(index, autoplay = false) {
       const entry = activeEntry();
       const track = entry?.tracks[index];
       if (!track) return;
@@ -1030,7 +1027,14 @@
       playingVideoId = track.video_id;
       saveState();
       document.querySelectorAll(".track").forEach((el,i) => el.classList.toggle("selected", i === index));
-      $("video").innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(track.video_id)}?rel=0&playsinline=1" title="${escapeAttr(track.title)}" allow="accelerometer; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>`;
+      // 同一首歌就不重建 iframe，不然投個票重繪一次就從頭播起
+      const player = $("video");
+      if (player.dataset.videoId !== track.video_id || (autoplay && player.dataset.autoplay !== "1")) {
+        player.dataset.videoId = track.video_id;
+        player.dataset.autoplay = autoplay ? "1" : "0";
+        const params = `rel=0&playsinline=1${autoplay ? "&autoplay=1" : ""}`;
+        player.innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(track.video_id)}?${params}" title="${escapeAttr(track.title)}" allow="accelerometer; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>`;
+      }
       $("now-title").textContent = track.title;
       $("now-artist").textContent = track.artist;
       $("now-reason").textContent = track.reason;
@@ -1197,7 +1201,7 @@
       }
       const track = event.target.closest(".track");
       const vote = event.target.closest(".vote");
-      if (track && !vote) selectTrack(Number(track.dataset.index));
+      if (track && !vote) selectTrack(Number(track.dataset.index), true);
       if (vote) {
         event.stopPropagation();
         feedback(Number(track.dataset.index), vote.dataset.vote, vote);
@@ -1212,7 +1216,7 @@
       const track = event.target.closest?.(".track");
       if (track && (event.key === "Enter" || event.key === " ")) {
         event.preventDefault();
-        selectTrack(Number(track.dataset.index));
+        selectTrack(Number(track.dataset.index), true);
       }
     });
     document.querySelectorAll(".prompt-chip").forEach(button => button.addEventListener("click", () => {
@@ -1277,7 +1281,8 @@
 
     async function openQrDialog() {
       $("qr-overlay").hidden = false;
-      $("qr-close").focus();
+      // 關閉鈕是可有可無的（Esc 與點背景都能關），沒有它就把焦點放到卡片上
+      ($("qr-close") || $("qr-card")).focus();
       if (installInfo) return renderQr(installInfo);
       $("qr-frame").innerHTML = '<span class="qr-status">產生中…</span>';
       $("qr-url").textContent = "";
@@ -1297,7 +1302,7 @@
     }
 
     $("qr-nav").addEventListener("click", openQrDialog);
-    $("qr-close").addEventListener("click", closeQrDialog);
+    $("qr-close")?.addEventListener("click", closeQrDialog);
     $("qr-overlay").addEventListener("click", event => {
       if (event.target === $("qr-overlay")) closeQrDialog();
     });
