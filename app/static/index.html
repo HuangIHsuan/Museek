@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#f2f1ec">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -179,10 +179,27 @@
     .dialog p { color:var(--muted) }
     .dialog .button { margin-top:18px }
 
+    /* 導覽列的 QR 彈窗：把這一頁的網址交給旁邊的人用手機掃 */
+    .qr-card { width:min(400px,100%); border:1px solid var(--ink); background:var(--card); padding:26px;
+               box-shadow:8px 8px 0 var(--lime); text-align:center }
+    .qr-card h2 { margin:0 0 6px; font:900 24px var(--display); letter-spacing:-.03em }
+    .qr-card > p { margin:0; color:var(--muted); font-size:13px }
+    .qr-frame { margin:20px auto 13px; width:min(238px,60vw); min-height:120px; display:grid; place-items:center;
+                border:1px solid var(--ink); background:#fbfbf9; padding:12px; line-height:0 }
+    .qr-frame svg { display:block; width:100%; height:auto }
+    .qr-frame .qr-status { font:12px var(--mono); color:var(--muted); line-height:1.5 }
+    .qr-url { font:12px/1.5 var(--mono); word-break:break-all }
+    .qr-note { margin-top:15px; border-left:3px solid var(--lime); padding-left:12px;
+               text-align:left; font-size:12px; color:var(--muted) }
+    .qr-actions { margin-top:19px; display:flex; gap:10px }
+    .qr-actions .button { flex:1; display:grid; place-items:center; text-align:center }
+    .qr-actions a.button { color:inherit; text-decoration:none }  /* <a> 會吃到預設的連結藍 */
+
     @media (max-width:800px) {
       main { width:min(100% - 28px,600px) }
       .topbar { padding:0 15px }
       .nav-link { display:none }
+      .qr-nav,#taste-nav { display:inline-block }
       .hero { grid-template-columns:1fr; gap:28px; padding:38px 0 60px }
       h1 { font-size:clamp(48px,15vw,72px) }
       .sound-object { height:150px; min-height:0; box-shadow:6px 6px 0 var(--ink) }
@@ -198,7 +215,23 @@
       .panel { padding:22px 18px; box-shadow:5px 5px 0 var(--ink) }
       .brand { font-size:17px }
       .topbar .button { padding:8px 10px }
+      /* 窄機身要塞下 QR Code、我的品味與開始體驗，先收緊間距再縮字 */
+      .nav-actions { gap:8px }
+      .nav-link { font-size:12px }
     }
+    /* 加到 iPhone 主畫面之後，這裡決定它像不像一支 app（#PWA） */
+    html { -webkit-text-size-adjust:100% }
+    html,body { overscroll-behavior-y:none }
+    body { -webkit-tap-highlight-color:transparent; padding-left:env(safe-area-inset-left); padding-right:env(safe-area-inset-right) }
+    button,.button,.nav-link,.brand { touch-action:manipulation }
+    .topbar { height:calc(64px + env(safe-area-inset-top)); padding-top:env(safe-area-inset-top) }
+    .player-side { top:calc(92px + env(safe-area-inset-top)) }
+    .shell { padding-bottom:env(safe-area-inset-bottom) }
+    .health-button { bottom:calc(18px + env(safe-area-inset-bottom)) }
+    .health-panel { bottom:calc(68px + env(safe-area-inset-bottom)) }
+    .overlay { padding:calc(20px + env(safe-area-inset-top)) 20px calc(20px + env(safe-area-inset-bottom)) }
+    /* 獨立視窗沒有網址列，捲動時頂欄要自己撐住瀏海 */
+    html.standalone .topbar { background:var(--paper) }
     @media (prefers-reduced-motion:reduce) {
       html { scroll-behavior:auto }
       *,*::before,*::after { animation-duration:.01ms!important; animation-iteration-count:1!important; transition:none!important }
@@ -210,6 +243,7 @@
     <header class="topbar">
       <button class="brand" data-go="home" aria-label="回到 Museek 首頁"><span class="mark">M</span>MUSEEK</button>
       <div class="nav-actions">
+        <button class="nav-link qr-nav" id="qr-nav" aria-haspopup="dialog">QR Code</button>
         <button class="nav-link" id="taste-nav" data-go="profile">我的品味</button>
         <button class="button primary" data-go="entry">開始體驗</button>
       </div>
@@ -325,6 +359,20 @@
     </aside>
   </div>
 
+  <div class="overlay" id="qr-overlay" hidden>
+    <div class="qr-card" role="dialog" aria-modal="true" aria-labelledby="qr-title">
+      <h2 id="qr-title">用手機掃開</h2>
+      <p>掃完在 Safari 按「分享 → 加入主畫面」，就會變成一支 app。</p>
+      <div class="qr-frame" id="qr-frame"><span class="qr-status">產生中…</span></div>
+      <div class="qr-url" id="qr-url"></div>
+      <div class="qr-note" id="qr-note" hidden></div>
+      <div class="qr-actions">
+        <a class="button ghost" id="qr-guide" href="/install" target="_blank" rel="noopener">完整步驟</a>
+        <button class="button primary" id="qr-close" type="button">關閉</button>
+      </div>
+    </div>
+  </div>
+
   <div class="overlay" id="overlay" hidden>
     <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="dialog-title">
       <h2 id="dialog-title">發生問題</h2>
@@ -333,6 +381,18 @@
     </div>
   </div>
 
+  <script>
+    // 從主畫面開啟時沒有網址列，樣式要知道自己在「app 模式」
+    if (window.matchMedia("(display-mode: standalone)").matches || navigator.standalone) {
+      document.documentElement.classList.add("standalone");
+    }
+    // Service Worker 只在安全情境（HTTPS 或 localhost）註冊；區網 http:// 會自己跳過
+    if ("serviceWorker" in navigator && window.isSecureContext) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/sw.js").catch(() => {});
+      });
+    }
+  </script>
   <script>
     // 後端已上線；要回到離線刻版把這裡改回 true 即可。
     const MOCK_MODE = false;
@@ -1079,6 +1139,7 @@
       }
     });
     document.addEventListener("keydown", event => {
+      if (event.key === "Escape" && !$("qr-overlay").hidden) { closeQrDialog(); return; }
       if ($("profile").classList.contains("active") && !event.target.closest?.("input,textarea")) {
         if (event.key === "ArrowLeft") { event.preventDefault(); moveCarousel(-1); }
         if (event.key === "ArrowRight") { event.preventDefault(); moveCarousel(1); }
@@ -1122,6 +1183,58 @@
     // 點空白處（遮罩本身）只關掉，不執行 CTA；那是「先不要」的意思。
     $("overlay").addEventListener("click", event => {
       if (event.target === $("overlay")) closeDialog(false);
+    });
+
+    // 導覽列的 QR：把「手機該連的那個網址」畫成 QR。後端才知道自己在哪個網域／哪個區網 IP，
+    // 所以問 /api/install；那條路徑 Service Worker 不會快取，換 Wi-Fi 也不會掃到舊的 IP。
+    let installInfo = null;
+    const QR_NOTES = {
+      lan: "這是區網網址：手機要跟這台電腦連同一個 Wi-Fi，離開就打不開了。",
+      origin: "這是目前的網域，手機在任何網路下都連得到。",
+      manual: "這是手動指定的網址。",
+    };
+
+    function renderQr(info) {
+      const frame = $("qr-frame"), note = $("qr-note");
+      if (!info || !info.url) {
+        frame.innerHTML = '<span class="qr-status">抓不到可以給手機連的網址</span>';
+        $("qr-url").textContent = "";
+        note.textContent = "這台機器可能沒連上任何網路。";
+        note.hidden = false;
+        return;
+      }
+      // qr_svg 由自家後端用 segno 產生，不是使用者輸入
+      frame.innerHTML = info.qr_svg || '<span class="qr-status">伺服器沒裝 segno<br>請直接輸入下面的網址</span>';
+      $("qr-url").textContent = info.url;
+      note.textContent = QR_NOTES[info.source] || "";
+      note.hidden = !note.textContent;
+    }
+
+    async function openQrDialog() {
+      $("qr-overlay").hidden = false;
+      $("qr-close").focus();
+      if (installInfo) return renderQr(installInfo);
+      $("qr-frame").innerHTML = '<span class="qr-status">產生中…</span>';
+      $("qr-url").textContent = "";
+      $("qr-note").hidden = true;
+      try {
+        installInfo = await fetch("/api/install").then(response => response.json());
+        renderQr(installInfo);
+      } catch {
+        installInfo = null;  // 下次再開時重試
+        renderQr(null);
+      }
+    }
+
+    function closeQrDialog() {
+      $("qr-overlay").hidden = true;
+      $("qr-nav").focus();
+    }
+
+    $("qr-nav").addEventListener("click", openQrDialog);
+    $("qr-close").addEventListener("click", closeQrDialog);
+    $("qr-overlay").addEventListener("click", event => {
+      if (event.target === $("qr-overlay")) closeQrDialog();
     });
     $("dialog-close").addEventListener("click", () => closeDialog(true));
     $("health-button").addEventListener("click", async () => {

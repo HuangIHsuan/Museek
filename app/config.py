@@ -116,6 +116,10 @@ class Settings(BaseSettings):
     hard_filter: bool = True             # §5.4 建議修正 1：排序前先硬過濾
 
     # --- 其他 ---
+    # 掃 QR 要開的網址（導覽列的 QR 彈窗與 /install）。設了就固定用它，
+    # 本機開發時掃到的也會是線上版；留空則自動判斷：對外網域用自己，
+    # localhost 則退回區網 IP。詳見 app/pwa.py。
+    public_base_url: str = ""
     http_timeout: float = 4.0            # ReccoBeats 逾時 4s，重試 1 次
     log_dir: str = "logs"
 

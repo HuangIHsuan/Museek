@@ -24,7 +24,7 @@ cp .env.example .env
 開 http://localhost:8000 。跑測試：
 
 ```bash
-.venv/bin/python -m pytest -q          # 202 個測試，全程 stub，不對外連線
+.venv/bin/python -m pytest -q          # 218 個測試，全程 stub，不對外連線
 ```
 
 > **跑測試不會燒配額。** `tests/conftest.py` 會把每個對外設定強制蓋成安全值——
@@ -32,6 +32,41 @@ cp .env.example .env
 
 `.env.example` 的預設值是「什麼都不填也跑得動」：儲存用記憶體、YouTube 走 stub、
 LLM 走規則式解析、ReccoBeats 打真實公開 API（不需要金鑰，連不上會自動退 stub）。
+
+---
+
+## 裝到 iPhone 上（掃 QR 開啟）
+
+前端本身就是 PWA：`apple-mobile-web-app-*` meta、`manifest.webmanifest`、
+安全區域（瀏海與底部橫條）都排好了，加到主畫面之後全螢幕開啟，沒有網址列也沒有分頁列。
+
+```bash
+.venv/bin/python scripts/serve_phone.py        # 綁 0.0.0.0，順便在終端機印出 QR
+```
+
+終端機會直接畫出 QR。用 **iPhone 內建相機**掃 → 開啟 → Safari 底部<b>分享</b>鍵 →
+<b>加入主畫面</b>。
+
+站上任何一頁的導覽列都有 **QR Code**，點下去彈出同一張 QR（手機上也留著，方便給旁邊的人掃）；
+彈窗裡的「完整步驟」會開 `/install` 圖解頁。QR 由 `GET /api/install` 現算——
+那條路徑 Service Worker 不快取，換了 Wi-Fi 也不會掃到上一次的舊 IP。
+
+QR 掃到哪一個網址，優先序是：`?url=` 臨時指定 → `PUBLIC_BASE_URL` 設定 →
+目前的對外網域 → 區網 IP。
+
+```bash
+# .env：設了之後，本機開發時掃到的也是線上版（Demo 用這個）
+PUBLIC_BASE_URL=https://museek-628708623127.asia-east1.run.app
+```
+
+| 事項 | 說明 |
+|---|---|
+| 想掃本機那一份 | `scripts/serve_phone.py --lan`，或臨時用 `/install?url=http://192.168.x.x:8000` |
+| 同一個 Wi-Fi | 只有走區網 IP 時才需要；`PUBLIC_BASE_URL` 指到線上就沒這個限制 |
+| Service Worker | 只在 HTTPS（或 localhost）註冊；區網 http:// 會自動跳過，功能不受影響 |
+| 沒設 PUBLIC_BASE_URL | 從 Cloud Run 網域開 `/install`，QR 一樣會指向那個網域 |
+
+`app/static/sw.js` 只快取外殼，**完全不碰 `/api/`**——推薦是 SSE 長連線，被攔就會斷。
 
 ---
 
@@ -72,7 +107,8 @@ RECCOBEATS_MODE=live .venv/bin/python scripts/verify_vibe_seeds.py
 
 ```
 app/
-  main.py              FastAPI 進入點、靜態檔掛載
+  main.py              FastAPI 進入點、靜態檔掛載、/install 與 /sw.js
+  pwa.py               掃 QR 裝到 iPhone：區網 IP 偵測、QR、安裝說明頁
   config.py            所有環境變數（Ranker 參數也在這，調校不用改程式）
   models.py            §3 凍結的 JSON 契約
   api/routes.py        §4 四支端點、SSE 事件格式
@@ -97,14 +133,16 @@ app/
     repository.py      Mongo 四個 collection + TTL 索引；連不上自動退記憶體版
     firestore_repo.py  Cloud Run 上的儲存後端，介面與 repository 一致
   static/              單頁 PWA（入口／我的品味卡片牆／思考串流／結果頁＋播放器）
+    sw.js              Service Worker：只快取外殼，不碰 /api/
 scripts/
+  serve_phone.py           綁 0.0.0.0 啟動，並在終端機印出手機掃的 QR
   prewarm_cache.py         Demo 前快取預熱 §8
   generate_icons.py        PWA 圖示產生器（不依賴 Pillow）
   verify_vibe_seeds.py     把備援種子池解析成 data/vibe_seeds.json（只打 ReccoBeats）
   migrate_cache_to_mongo.py 記憶體落檔搬進 Mongo（含配額計數）
   purge_stub_cache.py      清掉從 stub 模式留下來的假快取（#35）
   smoke_test.py            對部署好的位址跑一輪端到端驗證
-tests/                     202 個測試，全程 stub，不對外連線
+tests/                     218 個測試，全程 stub，不對外連線
 ```
 
 ---

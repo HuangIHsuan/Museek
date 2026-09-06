@@ -21,6 +21,7 @@ SAFE_ENV = {
     "GATEWAY_TOKEN": "",
     "ANTHROPIC_API_KEY": "",
     "MONGO_URL": "",              # 空 = 直接用記憶體版，不去連 Mongo
+    "PUBLIC_BASE_URL": "",        # 空 = 讓 /install 自己判斷，不吃 .env 裡的正式網址
 }
 
 
