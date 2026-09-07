@@ -109,8 +109,11 @@ def main() -> int:
     for track in tracks[:1]:
         check("曲目欄位完整",
               all(track.get(k) for k in ("video_id", "title", "artist", "reason")))
-        check("score 五個欄位齊全",
-              set(track.get("score", {})) == {"similarity", "band", "context_fit", "novelty", "final"})
+        # 用「包含」而不是「相等」：排序軸是會增加的（genre_fit 就是後來加的），
+        # 用 == 比對會讓每次新增評分維度都變成一次假失敗。
+        check("score 必要欄位齊全",
+              {"similarity", "band", "context_fit", "novelty", "final"} <= set(track.get("score", {})),
+              " ".join(sorted(track.get("score", {}))))
     if tracks:
         print(f"      例：{tracks[0]['artist']} - {tracks[0]['title']}")
         print(f"          {tracks[0]['reason']}")
