@@ -421,6 +421,8 @@ async def create_session_stream(repo, quota: QuotaTracker, playlist_url: str
             warning = ("這首歌在 ReccoBeats 曲庫與 iTunes 都查不到，沒有音訊特徵也沒有推薦種子。"
                        "換一首在串流平台上找得到的歌，或改貼整份歌單會更準。")
     session_id = uuid.uuid4().hex
+    # 單曲入口只有一首歌，卡片標題直接寫分析偵測到的歌名，比「來自 1 首歌」有意義
+    track_title = tracks[0]["title"] if kind == "video" and tracks else None
 
     await repo.save_profile({
         "session_id": session_id,
@@ -443,7 +445,8 @@ async def create_session_stream(repo, quota: QuotaTracker, playlist_url: str
     yield "session", {
         "session_id": session_id,
         "profile": {"vector": vector, "popularity_mean": popularity_mean, "warning": warning,
-                    "top_artists": _top_artists(tracks), "genres": genre_weights},
+                    "top_artists": _top_artists(tracks), "genres": genre_weights,
+                    "track_title": track_title},
         "matched": matched,
         "unmatched": unmatched,
         # 其中幾首的特徵是靠試聽片段分析出來的，不是曲庫查到的——這件事要看得見

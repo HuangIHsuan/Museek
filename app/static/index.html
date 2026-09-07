@@ -427,7 +427,7 @@
     function activeEntry() { return state.entries.find(entry => entry.id === state.activeId) || null; }
     function newEntry(fields) {
       const entry = { id:`taste-${++entrySeq}`, sessionId:null, sourceKind:null, vibe:null, seedSource:null,
-                      profile:null, previousProfile:null, topArtists:[], warning:null,
+                      profile:null, previousProfile:null, topArtists:[], warning:null, trackTitle:null,
                       matched:0, unmatched:0, analyzed:0, lastPrompt:"",
                       tracks:[], liked:[], lastRound:null, selected:null, createdAt:new Date(), ...fields };
       state.entries.push(entry);
@@ -679,7 +679,7 @@
         const fields = { sessionId:data.session_id, sourceKind:"playlist", vibe:null, seedSource:null,
                          previousProfile:null, profile:data.profile.vector,
                          topArtists:data.profile.top_artists || [], warning:data.profile.warning || null,
-                         genres:data.profile.genres || {},
+                         genres:data.profile.genres || {}, trackTitle:data.profile.track_title || null,
                          matched:data.matched, unmatched:data.unmatched, analyzed:data.analyzed || 0 };
         // 同一份歌單再解析一次會拿到同一個 session，那就更新原本那張卡，不要疊出重複的
         const existing = state.entries.find(entry => entry.sessionId === data.session_id);
@@ -724,6 +724,8 @@
     function entrySummary(entry) {
       // 這支向量是從情境推出來的目標值，不是聽歌紀錄——說成「你的品味」就是編的
       if (entry.sourceKind === "vibe") return entry.vibe || "從你描述的情境推出來的氛圍";
+      // 單曲入口才有 trackTitle：直接寫分析偵測到的歌名，比「來自 1 首歌」有意義
+      if (entry.trackTitle) return `來自《${entry.trackTitle}》的品味輪廓`;
       return `來自 ${entry.matched + entry.unmatched} 首歌的品味輪廓`;
     }
 

@@ -87,6 +87,8 @@ class ProfilePayload(BaseModel):
     # 這份歌單的曲風分布（slug → 權重，最大值正規化為 1）。平均向量說不出
     # 「這個人聽的是 citypop 不是 soft rock」，這份分布可以。
     genres: Dict[str, float] = Field(default_factory=dict)
+    # 只有單曲入口才有值：分析偵測到的歌名，讓前端能寫「來自《歌名》的品味輪廓」
+    track_title: Optional[str] = None
 
 
 class SessionResponse(BaseModel):
