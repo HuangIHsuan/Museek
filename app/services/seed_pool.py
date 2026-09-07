@@ -20,8 +20,14 @@ ReccoBeats 的推薦端點實測下來幾乎不看種子（NOTES #46），候選
 兩區各自都要攤開特徵空間，否則補進來的亞洲候選只會擠在某一個角落，
 情境一換就全部落選。
 
+## 曲風
+
+`GENRES` 是手工標的曲風（見那份清單上面的說明）。它有兩個用途：讓補進來的
+候選能湊進曲風名額，以及——**這是候選池裡唯一標得出 city_pop 的地方**。
+
 `data/vibe_seeds.json` 是這份清單解析過後的結果（scripts/verify_vibe_seeds.py 產生）。
 有這個檔就是零 API 呼叫、而且每一首都保證查得到；沒有的話 pipeline 會退回即時解析。
+region 與 genres 在讀取時都會用歌手名回推，所以改清單不必重跑解析腳本。
 """
 from __future__ import annotations
 
@@ -84,6 +90,131 @@ POOL: Dict[str, List[str]] = {
         "GoGo Penguin", "Kamasi Washington", "Explosions in the Sky", "Ólafur Arnalds",
     ],
 }
+
+
+# 曲風標籤，跟 region 一樣是**我們自己的主張**，手工維護（core/genres 的標準 slug）。
+#
+# **為什麼手工標而不是打 iTunes。** 三個理由，第三個才是關鍵：
+#   1. 零請求。iTunes 每分鐘約 20 次，98 位歌手光標一次就要五分鐘（NOTES #49）。
+#   2. 比較準。iTunes 是模糊搜尋，「Jay Chou」它回「周杰倫」而歌手名驗證會擋掉，
+#      「Anri」會混進另一位同名歌手的龐克曲目。
+#   3. **它表達得出 iTunes 表達不出的東西。** iTunes 沒有 citypop 這個分類，
+#      山下達郎在它眼裡是 J-Pop、落日飛車是「成人當代」。這份清單是候選池裡
+#      唯一標得出 city_pop 的地方——而 citypop 正是這個功能最初要解的那個例子。
+#
+# 只標**主要**曲風，一位最多三個。標滿等於沒標：genre_fit 取 max，
+# 多標一個就多一條命中的路，最後每位歌手都能對上任何請求。
+GENRES: Dict[str, List[str]] = {
+    # --- 亞洲 ---
+    "Ichiko Aoba": ["folk", "singer_songwriter"],
+    "Ryuichi Sakamoto": ["classical", "ambient"],
+    "Crowd Lu": ["mandopop", "folk"],
+    "Prateek Kuhad": ["folk", "singer_songwriter"],
+    "Cheer Chen": ["mandopop", "folk"],
+    "LÜCY": ["dream_pop", "indie_rock"],
+    "deca joins": ["indie_rock", "dream_pop"],
+    "Susumu Yokota": ["ambient", "edm"],
+    "Hikaru Utada": ["jpop", "rnb"],
+    "落日飛車 Sunset Rollercoaster": ["city_pop", "indie_rock", "funk"],
+    "Phum Viphurit": ["indie_rock", "funk"],
+    "9m88": ["rnb", "neo_soul", "jazz"],
+    "HYUKOH": ["indie_rock", "kpop"],
+    "SIRUP": ["rnb", "neo_soul", "jpop"],
+    "Zion.T": ["rnb", "kpop"],
+    "toe": ["math_rock", "post_rock"],
+    "Fujii Kaze": ["jpop", "rnb"],
+    "NewJeans": ["kpop", "rnb"],
+    "Wonder Girls": ["kpop", "city_pop"],
+    "Leo王": ["hip_hop", "mandopop"],
+    "Vaundy": ["jpop", "indie_rock"],
+    "Jolin Tsai": ["mandopop", "pop"],
+    "告五人": ["indie_rock", "mandopop"],
+    "ONE OK ROCK": ["rock", "punk"],
+    "tricot": ["math_rock", "indie_rock"],
+    "Fire EX.": ["rock", "punk"],
+    "Elephant Gym": ["math_rock", "indie_rock"],
+    "King Gnu": ["jpop", "indie_rock"],
+    "SE SO NEON": ["indie_rock", "kpop"],
+    "sakanaction": ["jpop", "synthpop"],
+    "YOASOBI": ["jpop", "synthpop"],
+    "Ado": ["jpop", "rock"],
+    "BLACKPINK": ["kpop", "edm"],
+    "Mondo Grosso": ["house", "jpop"],
+    "Ritviz": ["edm", "house"],
+    "Yaeji": ["house", "edm"],
+    "No Party For Cao Dong": ["indie_rock", "punk"],
+    "Silica Gel": ["indie_rock", "shoegaze"],
+    "Younha": ["kpop", "rock"],
+    "Kenshi Yonezu": ["jpop", "indie_rock"],
+    "Tizzy Bac": ["indie_rock", "mandopop"],
+    "Waa Wei": ["mandopop", "indie_rock"],
+    "Nujabes": ["lofi", "hip_hop", "jazz"],
+    "Cornelius": ["indie_rock", "jpop"],
+    "STUTS": ["hip_hop", "lofi"],
+    "Epik High": ["hip_hop", "kpop"],
+    "Rich Brian": ["hip_hop", "trap"],
+    "Jay Chou": ["mandopop", "rnb"],
+    "Eason Chan": ["mandopop", "pop"],
+    "JJ Lin": ["mandopop", "rnb"],
+    "Mayday": ["mandopop", "rock"],
+    "sodagreen": ["mandopop", "indie_rock"],
+    "Hebe Tien": ["mandopop", "pop"],
+    "EggPlantEgg": ["mandopop", "indie_rock"],
+    "Hindia": ["indie_rock"],
+    "Ben&Ben": ["folk", "indie_rock"],
+    "IV Of Spades": ["funk", "indie_rock", "city_pop"],
+    "Reality Club": ["indie_rock"],
+    "Safeplanet": ["indie_rock", "dream_pop"],
+    # --- 歐美 ---
+    "Bon Iver": ["folk", "indie_rock"],
+    "Sufjan Stevens": ["folk", "singer_songwriter"],
+    "Nick Drake": ["folk", "singer_songwriter"],
+    "José González": ["folk", "singer_songwriter"],
+    "Agnes Obel": ["classical", "folk"],
+    "Cigarettes After Sex": ["dream_pop", "shoegaze"],
+    "Beach House": ["dream_pop", "shoegaze"],
+    "Boards of Canada": ["ambient", "edm"],
+    "Bonobo": ["edm", "ambient"],
+    "Tycho": ["ambient", "edm"],
+    "Khruangbin": ["funk", "indie_rock"],
+    "Men I Trust": ["dream_pop", "indie_rock"],
+    "Mac DeMarco": ["indie_rock", "dream_pop"],
+    "Tom Misch": ["neo_soul", "jazz", "funk"],
+    "Rex Orange County": ["indie_rock", "soul"],
+    "Dua Lipa": ["pop", "disco"],
+    "Harry Styles": ["pop", "rock"],
+    "Lizzo": ["pop", "rnb"],
+    "Jungle": ["funk", "disco"],
+    "Vampire Weekend": ["indie_rock"],
+    "Foo Fighters": ["rock"],
+    "Arctic Monkeys": ["indie_rock", "rock"],
+    "Queens of the Stone Age": ["rock"],
+    "Muse": ["rock"],
+    "Paramore": ["rock", "punk", "emo"],
+    "The Chemical Brothers": ["edm", "techno"],
+    "Justice": ["edm", "house"],
+    "Fred again..": ["house", "edm"],
+    "Skrillex": ["edm"],
+    "Daft Punk": ["house", "disco"],
+    "Radiohead": ["indie_rock", "rock"],
+    "The National": ["indie_rock"],
+    "Joy Division": ["punk", "indie_rock"],
+    "Massive Attack": ["edm", "ambient"],
+    "Portishead": ["edm", "ambient"],
+    "GoGo Penguin": ["jazz", "classical"],
+    "Kamasi Washington": ["jazz"],
+    "Explosions in the Sky": ["post_rock"],
+    "Ólafur Arnalds": ["classical", "ambient"],
+}
+
+
+def genres_of(name: str) -> List[str]:
+    """這位歌手的曲風（標準 slug）。不在清單裡回空清單——不知道就說不知道。"""
+    key = (name or "").strip().lower()
+    for listed, slugs in GENRES.items():
+        if key == listed.strip().lower():
+            return list(slugs)
+    return []
 
 
 def _dedup(names: List[str]) -> List[str]:
@@ -153,6 +284,10 @@ def load(path: Optional[str] = None) -> List[Dict]:
         # 空的一律當作「不是亞洲」，寧可少湊一首，也不要把不確定的東西講成確定的。
         if not row.get("region"):
             row["region"] = region_of(row.get("artist", ""))
+        # 曲風同理，而且更該回推：GENRES 是手工維護的，改了清單不必重跑解析腳本
+        # 就會生效。回推不到就留空——查不到曲風的候選在排序時不受罰。
+        if not row.get("genres"):
+            row["genres"] = genres_of(row.get("artist", ""))
         out.append(row)
     if out and not any(row["region"] for row in out):
         log.warning("種子池沒有任何 region 標記，亞洲名額會湊不滿"
@@ -164,11 +299,30 @@ def _ranked(pool: List[Dict], target: Dict[str, float], similarity: Callable) ->
     return sorted(pool, key=lambda row: similarity(target, row.get("features") or {}), reverse=True)
 
 
+def _one_per_artist(ranked: List[Dict]) -> List[Dict]:
+    """同一位歌手只留排最前面的那一首（保序）。
+
+    池子裡一位歌手有好幾首（verify 腳本預設留 3 首），照曲目抽的話很容易
+    抽到同一位——實測「聽 lo-fi 的人」前五拿到三首 STUTS。五首裡三首同一位
+    歌手不是推薦，是重複播放，而且同溫層懲罰擋不到它（那一項只看使用者
+    聽過的歌手，管不到同一輪之內）。
+    """
+    out, seen = [], set()
+    for row in ranked:
+        key = (row.get("artist") or "").strip().lower()
+        if key and key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return out
+
+
 def _sample(ranked: List[Dict], want: int, shortlist: int) -> List[Dict]:
-    """在最貼近的前 shortlist 名之內隨機取 want 首。"""
+    """在最貼近的前 shortlist 名之內隨機取 want 首，同一位歌手最多一首。"""
     if want <= 0 or not ranked:
         return []
-    window = ranked[:max(want, shortlist)]
+    unique = _one_per_artist(ranked)
+    window = unique[:max(want, shortlist)]
     return random.sample(window, min(want, len(window)))
 
 

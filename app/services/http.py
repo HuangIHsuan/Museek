@@ -60,6 +60,12 @@ def pacer(name: str, min_interval: float = 0.3, max_inflight: int = 2) -> Pacer:
     if name not in _pacers:
         _pacers[name] = Pacer(min_interval, max_inflight)
     return _pacers[name]
+
+
+def reset_pacers() -> None:
+    """丟掉所有節流器。設定變更後要呼叫——節流器建立時就把間隔記死了，
+    不重建的話新的間隔不會生效（測試把間隔設成 0 時就是靠這個）。"""
+    _pacers.clear()
 _client: Optional[httpx.AsyncClient] = None
 
 

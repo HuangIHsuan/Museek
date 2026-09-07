@@ -108,7 +108,9 @@ async def test_recommend_streams_thinking_then_tracks_then_done(client):
     for track in tracks:
         assert track["video_id"] and track["title"] and track["artist"]
         assert track["reason"]
-        assert set(track["score"]) == {"similarity", "band", "context_fit", "novelty", "final"}
+        assert set(track["score"]) == {"similarity", "band", "context_fit", "novelty",
+                                       "genre_fit", "final"}
+        assert isinstance(track["genres"], list)
 
     done = events[-1][1]
     assert "dropped" in done and "quota_used" in done   # Demo 最後五秒要用

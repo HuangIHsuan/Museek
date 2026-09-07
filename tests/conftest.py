@@ -12,6 +12,7 @@ from app.config import get_settings
 from app.services import http
 from app.db.repository import MemoryRepository, reset_repository
 from app.services.reccobeats import reset_artist_cache
+from app.services.itunes import reset_genre_cache
 
 SAFE_ENV = {
     "YOUTUBE_API_KEY": "",        # 空字串 = stub。不能用 delenv，那會讓 .env 的值浮上來
@@ -20,6 +21,8 @@ SAFE_ENV = {
     "GATEWAY_BASE_URL": "",
     "GATEWAY_TOKEN": "",
     "ANTHROPIC_API_KEY": "",
+    "GENRE_LOOKUP": "false",      # 曲風查詢會打 iTunes，測試一律關掉
+    "ITUNES_PACE_SECONDS": "0",   # 直接呼叫 itunes 的測試不必等真實節流
     "MONGO_URL": "",              # 空 = 直接用記憶體版，不去連 Mongo
     "PUBLIC_BASE_URL": "",        # 空 = 讓 /install 自己判斷，不吃 .env 裡的正式網址
 }
@@ -44,9 +47,12 @@ def isolated_settings(monkeypatch, tmp_path):
     for key, value in SAFE_ENV.items():
         monkeypatch.setenv(key, value)
     get_settings.cache_clear()
+    http.reset_pacers()       # 節流器把間隔記死在建立當下，換設定要重建
     reset_repository()
     reset_artist_cache()      # 歌手曲目清單是行程內快取，不清會跨測試污染
+    reset_genre_cache()       # 曲風快取（依歌手名）同理
     yield
     get_settings.cache_clear()
     reset_repository()
     reset_artist_cache()
+    reset_genre_cache()

@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import math
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Mapping, Optional, Tuple
 
+from app.core import genres
 from app.models import FEATURE_KEYS, FEATURE_WEIGHTS, Constraints, Score
 
 TEMPO_SCALE = 200.0
@@ -132,6 +133,19 @@ def passes_hard_filter(constraints: Constraints, features: Dict[str, float]) -> 
     return all(_constraint_checks(constraints, features))
 
 
+def tier_of(constraints: Constraints, candidate: Dict,
+            avoid_genres: Optional[List[str]] = None) -> bool:
+    """候選屬於哪一層：True = 符合情境、False = 違反（排到後段當備位）。
+
+    「不要嘻哈」跟「不要太吵」是同一種話，所以走同一層分級，而不是直接把候選
+    丟掉——§5.4 的紀律是分級不是全丟，這樣候選池太小時仍然湊得滿五首。
+    曲風的排除只認**完全命中**（genres.blocked），不牽連相關曲風。
+    """
+    if not passes_hard_filter(constraints, candidate.get("features") or {}):
+        return False
+    return not (avoid_genres and genres.blocked(avoid_genres, genres.genres_of(candidate)))
+
+
 def score_candidate(
     user_vector: Dict[str, float],
     candidate: Dict,
@@ -143,8 +157,21 @@ def score_candidate(
     w_band: float = 0.45,
     w_context: float = 0.30,
     w_novelty: float = 0.25,
+    w_genre: float = 0.30,
+    wanted_genres: Optional[Mapping[str, float]] = None,
     penalty: float = 0.55,
 ) -> Score:
+    """§5.3 Discovery Score，外加曲風那一項。
+
+    **曲風是加權平均裡的一項，不是加分。** 各項先乘權重再除以權重總和，所以
+    `genre_fit` 無從判斷時（使用者沒指定曲風，或這首查不到標籤）整項連同權重
+    一起消失，其餘三項自動補回滿分基準。
+
+    這個「一起拿掉」是刻意的，不是省事：曲風是外部查來的，一定有一批候選
+    查不到（iTunes 沒收、或這一輪的查詢額度用完了）。把 None 當 0 分的話，
+    那些候選一律先扣掉 w_genre 那一截，排序會安靜地退化成「比誰有標籤」
+    ——而有沒有標籤跟好不好聽完全無關。
+    """
     features = candidate.get("features") or {}
     sim = similarity(user_vector, features)
     band_value = band(sim, center, width)
@@ -152,8 +179,13 @@ def score_candidate(
     popularity = candidate.get("popularity")
     novelty = 1.0 - (float(popularity) / 100.0) if popularity is not None else 0.5
     novelty = min(1.0, max(0.0, novelty))
+    gfit = genres.genre_fit(wanted_genres or {}, genres.genres_of(candidate))
 
-    final = w_band * band_value + w_context * fit + w_novelty * novelty
+    parts = [(w_band, band_value), (w_context, fit), (w_novelty, novelty)]
+    if gfit is not None:
+        parts.append((w_genre, gfit))
+    total = sum(weight for weight, _ in parts)
+    final = sum(weight * value for weight, value in parts) / total if total else 0.0
     if seen_artists and _artist_seen(candidate.get("artist", ""), seen_artists):
         final *= penalty  # 同溫層懲罰
 
@@ -162,6 +194,7 @@ def score_candidate(
         band=round(band_value, 4),
         context_fit=round(fit, 4),
         novelty=round(novelty, 4),
+        genre_fit=round(gfit, 4) if gfit is not None else None,
         final=round(final, 4),
     )
 
@@ -180,6 +213,7 @@ def rank(
     *,
     hard_filter: bool = True,
     min_pool: int = 5,
+    avoid_genres: Optional[List[str]] = None,
     **score_kwargs,
 ) -> Tuple[List[Dict], bool]:
     """回傳 (排序後的候選, 是否有候選因違反情境而被降到後段)。
@@ -208,7 +242,7 @@ def rank(
 
     passing, failing = [], []
     for candidate in pool:
-        target = passing if passes_hard_filter(constraints, candidate.get("features") or {}) else failing
+        target = passing if tier_of(constraints, candidate, avoid_genres) else failing
         target.append(candidate)
 
     # 旗標只在「真的有分級效果」時為 True：必須同時有通過者與違反者。
@@ -227,6 +261,9 @@ def region_quota(
     floor: int,
     cap: int,
     window: int,
+    *,
+    avoid_genres: Optional[List[str]] = None,
+    prefer_keep: Optional[Callable[[Dict], bool]] = None,
 ) -> Tuple[List[Dict], int]:
     """把前 window 名裡符合 is_target 的數量夾在 [floor, cap]，回傳 (重排後清單, 實際數量)。
 
@@ -243,12 +280,17 @@ def region_quota(
          不會因為它是亞洲的就被拉到前面，反之亦然——§5.4 的分級優先於地區名額。
       2. **讓位的一定是同層裡分數最低的那一個**，補上來的一定是同層裡分數最高的。
          名額只動最邊緣的位子，前段的排序仍然是分數說了算。
+
+    `prefer_keep` 是給「前面已經跑過另一個名額」的情況用的。名額連跑兩輪時，
+    後跑的那一輪會把先跑那一輪剛擠進來的候選再擠出去，兩個下限互相拆台。
+    給了這個判斷式，讓位者就從「不符合 prefer_keep 的那些」裡先挑；
+    真的挑不到才動到它們——先跑的名額因此只會在沒有別的選擇時才被犧牲。
     """
     if window <= 0 or not ranked:
         return ranked, 0
 
     def tier(candidate: Dict) -> bool:
-        return passes_hard_filter(constraints, candidate.get("features") or {})
+        return tier_of(constraints, candidate, avoid_genres)
 
     def order(candidate: Dict):
         return (tier(candidate), candidate["score"].final)
@@ -263,7 +305,9 @@ def region_quota(
                        if is_target(c) != wanted_in_head and tier(c) == tier(item)]
             if not victims:
                 continue
-            victim = min(victims, key=lambda c: c["score"].final)
+            # 另一個名額保下來的那些排最後才動（見 prefer_keep 的說明）
+            expendable = [c for c in victims if not prefer_keep(c)] if prefer_keep else []
+            victim = min(expendable or victims, key=lambda c: c["score"].final)
             head[head.index(victim)] = item
             tail[tail.index(item)] = victim
             return True
@@ -284,6 +328,35 @@ def region_quota(
 
 UP_RATE = 0.15
 DOWN_RATE = 0.10
+
+
+GENRE_UP_RATE = 0.25
+GENRE_DOWN_RATE = 0.20
+GENRE_PROFILE_MAX = 8
+
+
+def apply_genre_feedback(
+    weights: Mapping[str, float], candidate_genres: List[str], vote: str
+) -> Dict[str, float]:
+    """👍 把這首的曲風權重往上帶、👎 往下帶，回傳新的曲風偏好。
+
+    向量那邊是「往候選靠攏」，這裡不能照抄：曲風是類別，沒有「靠攏」可言，
+    只有「這一類我要多一點還是少一點」。所以直接加減權重，然後重新正規化到
+    最大值為 1——genres.genre_fit 讀的是相對比重，絕對值沒有意義。
+
+    降到 0 以下的曲風直接移除。留著一個負權重沒有意義，而 genre_fit 也只看
+    大於 0 的項；清掉才不會讓偏好表無止盡地長。
+    """
+    rate = GENRE_UP_RATE if vote == "up" else -GENRE_DOWN_RATE
+    updated = {slug: float(weight) for slug, weight in (weights or {}).items()}
+    for slug in {g for g in candidate_genres if g}:
+        updated[slug] = updated.get(slug, 0.0) + rate
+    updated = {slug: weight for slug, weight in updated.items() if weight > 0}
+    if not updated:
+        return {}
+    top = max(updated.values())
+    ranked = sorted(updated.items(), key=lambda kv: (-kv[1], kv[0]))[:GENRE_PROFILE_MAX]
+    return {slug: round(min(1.0, weight / top), 4) for slug, weight in ranked}
 
 
 def apply_feedback(

@@ -63,9 +63,15 @@
     .center-stage { min-height:calc(100dvh - 64px); display:grid; place-items:center; padding:48px 0 80px }
     .panel { width:min(100%,560px); border:1px solid var(--ink); background:var(--card); padding:clamp(22px,5vw,42px); box-shadow:8px 8px 0 var(--ink) }
     .panel.wide { width:min(100%,760px) }
-    .panel.profile-panel { flex:0 0 min(80vw,340px); width:min(80vw,340px); padding:22px 16px 18px;
+    .panel.profile-panel { position:relative; flex:0 0 min(80vw,340px); width:min(80vw,340px); padding:22px 16px 18px;
                            user-select:none; opacity:.45; transform:scale(.95);
                            transition:opacity .3s ease,transform .3s ease }
+    /* 卡片右上角的 ×：刪掉那一輪的品味與推薦 */
+    .card-remove { position:absolute; top:6px; right:6px; z-index:1; display:grid; place-items:center;
+                   width:26px; height:26px; border:1px solid var(--ink); background:var(--card); color:var(--ink);
+                   padding:0; cursor:pointer; font:700 15px/1 var(--mono);
+                   transition:background .18s ease,color .18s ease }
+    .card-remove:hover { background:var(--ink); color:var(--card) }
     .profile-stage { padding:48px 0 90px }
     .profile-head { margin-bottom:26px; text-align:center }
     .profile-head h2 { margin-bottom:12px; font:900 clamp(30px,5vw,52px)/.98 var(--display); letter-spacing:-.045em }
@@ -167,6 +173,9 @@
     .track img { width:128px; aspect-ratio:16/9; object-fit:cover; background:var(--paper-2) }
     .track h3 { margin:1px 0 2px; font:800 15px/1.2 var(--display) }
     .track p { margin:0; color:var(--muted); font-size:12px }
+    /* 卡片上的曲風要小一號：它是輔助資訊，不能跟曲名搶注意力 */
+    .track .genres { gap:5px; margin:5px 0 0 }
+    .track .genre { padding:2px 8px; font-size:11px }
     .feedback { grid-column:1/-1; display:flex; gap:8px }
     .vote { flex:1; min-height:42px; border:1px solid var(--rule); background:var(--paper); cursor:pointer; font-weight:900 }
     .vote:hover { border-color:var(--ink) }
@@ -287,7 +296,7 @@
             <p class="sub">從熟悉的品味出發，保留一點意外。</p>
             <div class="field-group">
               <label for="playlist">公開 YouTube 歌單或單曲</label>
-              <input id="playlist" type="url" inputmode="url" placeholder="貼上歌單或單曲連結，例如 https://youtu.be/..." autocomplete="url">
+              <input id="playlist" type="url" inputmode="url" placeholder="貼上歌單或單曲連結，例如 https://youtu.be/..." autocomplete="off">
               <div class="field-help" id="playlist-help">歌單最多分析 50 首；也可以只貼一首歌，就以它當起點。</div>
               <div class="parse-progress" id="parse-progress" hidden aria-live="polite">
                 <div class="parse-bar indeterminate" id="parse-bar" role="progressbar"
@@ -317,8 +326,8 @@
       <section class="view" id="profile">
         <div class="profile-stage">
           <div class="profile-head">
-            <div class="eyebrow">Your Taste</div>
-            <h2>我讀到的你</h2>
+            <div class="eyebrow">My Taste</div>
+            <h2>我的品味</h2>
             <p class="sub" id="profile-lead">先解析歌單或單曲，建立你的品味輪廓。</p>
           </div>
           <div class="profile-carousel" id="profile-carousel" role="group" aria-label="品味卡片">
@@ -362,6 +371,7 @@
               <div class="now" id="now-title">尚未選擇</div>
               <div class="artist" id="now-artist"></div>
               <div class="reason" id="now-reason">點選右側歌曲查看推薦理由。</div>
+              <div class="genres" id="now-genres"></div>
               <div class="feature-list" id="features"></div>
             </div>
             <div class="tracks" id="tracks"></div>
@@ -473,6 +483,22 @@
       state.entries = state.entries.filter(item => item !== entry);
       if (state.previewId === entry.id) state.previewId = null;
       if (state.activeId === entry.id) state.activeId = state.entries[state.entries.length - 1]?.id || null;
+    }
+
+    // 卡片右上角的 ×：連同那一輪推過的歌一起刪掉，重整後也不會再回來
+    // 刪掉的那一輪找不回來，先問過再動手；點對話框外面就是不刪
+    function confirmRemoveEntry(entry) {
+      const played = entry.tracks.length ? `，連同這一輪推過的 ${entry.tracks.length} 首歌` : "";
+      showDialog("刪除這張品味卡片？",
+                 `${entrySummary(entry)}${played}會一起刪掉，之後無法復原。`,
+                 { label:"確定刪除", run:() => removeEntry(entry) });
+    }
+
+    function removeEntry(entry) {
+      dropEntry(entry);
+      saveState();
+      renderProfiles();
+      renderTasteStrip();
     }
 
     // 解析了卻沒按下探索的品味不留下來——只有推出過歌的那幾輪才算數
@@ -653,6 +679,7 @@
         const fields = { sessionId:data.session_id, sourceKind:"playlist", vibe:null, seedSource:null,
                          previousProfile:null, profile:data.profile.vector,
                          topArtists:data.profile.top_artists || [], warning:data.profile.warning || null,
+                         genres:data.profile.genres || {},
                          matched:data.matched, unmatched:data.unmatched, analyzed:data.analyzed || 0 };
         // 同一份歌單再解析一次會拿到同一個 session，那就更新原本那張卡，不要疊出重複的
         const existing = state.entries.find(entry => entry.sessionId === data.session_id);
@@ -731,6 +758,7 @@
       const action = played ? "results" : "explore";
       const actionLabel = played ? `查看推薦歌曲（${entry.tracks.length} 首）` : "開始探索";
       return `<div class="panel profile-panel">
+        <button class="card-remove" type="button" data-remove="${entry.id}" aria-label="刪除這張品味卡片" title="刪除這張品味卡片">×</button>
         <div class="profile-meta">
           <span class="profile-tag">${entry.sourceKind === "vibe" ? "情境" : "歌單"}</span>
           <span>${order ? `第 ${order} 次 · ` : ""}${entryTime(entry)}</span>
@@ -739,6 +767,7 @@
         <div class="profile-grid">${metrics}</div>
         <div class="genre-title">${entry.sourceKind === "vibe" ? "起點歌手" : "常聽歌手"}</div>
         <div class="genres">${artists}</div>
+        ${genreRow(entry)}
         <div class="match-note">${escapeHtml(entryNote(entry))}</div>
         <button class="button primary full" type="button" data-entry="${entry.id}" data-action="${action}">${escapeHtml(actionLabel)}</button>
       </div>`;
@@ -891,7 +920,7 @@
               sessionId:data.session_id, sourceKind:"vibe", vibe:data.vibe || "",
               seedSource:data.seed_source || "vibe", previousProfile:null,
               profile:data.vector || null, topArtists:data.seed_artists || [],
-              warning:null, matched:0, unmatched:0, analyzed:0,
+              genres:{}, warning:null, matched:0, unmatched:0, analyzed:0,
             });
             renderTasteStrip();
           },
@@ -953,7 +982,10 @@
         return `
         <article class="track${isLiked ? " liked" : ""}" data-index="${index}" tabindex="0" role="button" aria-label="播放 ${escapeHtml(track.title)}">
           <img src="${escapeAttr(track.thumbnail)}" alt="" width="128" height="72" loading="lazy">
-          <div><h3>${escapeHtml(track.title)}</h3><p>${escapeHtml(track.artist)}</p></div>
+          <div>
+            <h3>${escapeHtml(track.title)}</h3><p>${escapeHtml(track.artist)}</p>
+            <div class="genres">${genreChips(track.genres, 3)}</div>
+          </div>
           <div class="feedback">
             <button class="vote" data-vote="up" aria-pressed="${isLiked}"${isLiked ? " disabled" : ""} aria-label="喜歡這首">${isLiked ? "已喜歡" : "喜歡"}</button>
             <button class="vote" data-vote="down" aria-pressed="false" aria-label="不喜歡這首">略過</button>
@@ -963,6 +995,32 @@
       // 卡片留下來了，正在放的那首也該留著——按個喜歡就被跳回第一首會像是被打斷
       const playing = entry.tracks.findIndex(track => track.video_id === playingVideoId);
       selectTrack(playing >= 0 ? playing : 0);
+    }
+
+    // slug → 顯示名。後端 core/genres.LABELS 是同一份資料，但那份在伺服器上，
+    // 前端拿到的是 slug；照規則轉（底線換空白、首字大寫）多數都對，
+    // 只有這幾個轉出來會很怪，所以單獨列出來。
+    const GENRE_LABELS = { rnb:"R&B", jpop:"J-Pop", kpop:"K-Pop", lofi:"Lo-fi", edm:"電子",
+                           hip_hop:"Hip-Hop", synthpop:"Synth Pop",
+                           mandopop:"華語流行", classical:"古典", drum_and_bass:"Drum & Bass",
+                           singer_songwriter:"創作歌手", citywide_asia_indie:"亞洲獨立",
+                           adult_contemporary:"成人當代", soundtrack:"配樂" };
+    function genreLabel(slug) {
+      return GENRE_LABELS[slug]
+        || String(slug || "").split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+    }
+
+    // 品味卡片上的曲風列。查不到就整列不出現——iTunes 對某些歌手就是沒有資料
+    // （歌手名對不上時也會漏），寫「尚未取得」只會讓人以為功能壞了。
+    function genreRow(entry) {
+      const slugs = Object.keys(entry.genres || {});
+      if (!slugs.length) return "";
+      return `<div class="genre-title">曲風</div><div class="genres">${genreChips(slugs, 5)}</div>`;
+    }
+
+    function genreChips(slugs, limit) {
+      return (slugs || []).slice(0, limit || 4)
+        .map(slug => `<span class="genre">${escapeHtml(genreLabel(slug))}</span>`).join("");
     }
 
     // 只湊到幾首時要講原因。少給歌又不解釋，看起來就像推薦引擎壞了
@@ -1038,6 +1096,8 @@
       $("now-title").textContent = track.title;
       $("now-artist").textContent = track.artist;
       $("now-reason").textContent = track.reason;
+      // 曲風要看得見：數值都對但曲風不對的時候，使用者要能一眼看出是哪裡不對
+      $("now-genres").innerHTML = genreChips(track.genres);
       // 標籤與白話註解跟後端 template_reason 的用詞對齊，看理由跟看數字不會是兩套說法
       $("features").innerHTML = Object.entries(track.features || {}).map(([key,value]) => {
         const number = Number(value).toFixed(key === "tempo" ? 0 : 2);
@@ -1094,6 +1154,8 @@
           profile(data) {
             entry.previousProfile = entry.profile;
             entry.profile = data.updated_profile;
+            // 曲風偏好也會被 👍👎 帶著動，卡片上那一列要跟著更新
+            if (data.genres) entry.genres = data.genres;
             renderTasteStrip();
           },
           track(data) { reranked.push(data); },
@@ -1183,6 +1245,14 @@
         state.cardIndex = Number(dot.dataset.dot);
         return layoutCarousel(true);
       }
+      // 右上角的 × 只負責刪卡，不能順手觸發卡片上的探索
+      const remove = event.target.closest("[data-remove]");
+      if (remove) {
+        event.stopPropagation();
+        const entry = state.entries.find(item => item.id === remove.dataset.remove);
+        if (entry) confirmRemoveEntry(entry);
+        return;
+      }
       const card = event.target.closest("[data-entry]");
       if (card) {
         const entry = state.entries.find(item => item.id === card.dataset.entry);
@@ -1209,6 +1279,8 @@
     });
     document.addEventListener("keydown", event => {
       if (event.key === "Escape" && !$("qr-overlay").hidden) { closeQrDialog(); return; }
+      // 對話框那顆按鈕可能是「確定刪除」，Esc 一律當成不做那件事
+      if (event.key === "Escape" && !$("overlay").hidden) { closeDialog(false); return; }
       if ($("profile").classList.contains("active") && !event.target.closest?.("input,textarea")) {
         if (event.key === "ArrowLeft") { event.preventDefault(); moveCarousel(-1); }
         if (event.key === "ArrowRight") { event.preventDefault(); moveCarousel(1); }
@@ -1334,6 +1406,12 @@
         $("health-content").textContent = "無法取得健康狀態";
       }
     });
+
+    // 連結欄每次進來都要是空的：上一輪的歌單不該替這次的人先填好答案。
+    // autocomplete="off" 擋掉瀏覽器的表單還原，pageshow 再補一次（上一頁回來走 bfcache 不會重跑腳本）。
+    function clearPlaylistInput() { $("playlist").value = ""; }
+    clearPlaylistInput();
+    window.addEventListener("pageshow", clearPlaylistInput);
 
     // --- 還原上次留下的紀錄 ---
     restoreState();

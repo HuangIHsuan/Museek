@@ -1,7 +1,7 @@
 # Museek 系統開發文件
 
 **AI 音樂探索 Agent ｜ 開發規格**
-文件版本 v1.1｜初版 2026-08-26｜整理 2026-09-04
+文件版本 v1.2｜初版 2026-08-26｜整理 2026-09-07
 
 > 本文件是給開發者看的。產品面的定義與範圍請見《Museek 系統定義書》。
 > 本文件與系統定義書若有衝突，以系統定義書為準。
@@ -55,7 +55,7 @@
 ### 1.1 模組的對外連線需求
 
 原本這張表是為了「哪些工作能在公司內網做」而列的。內網限制已不適用，但這個分類仍然是
-**測試策略的依據**：純邏輯模組可以完全離線測試，202 個測試因此不需要任何對外連線。
+**測試策略的依據**：純邏輯模組可以完全離線測試，218 個測試因此不需要任何對外連線。
 
 | 模組／工作 | 需要對外連線 | 說明 |
 |---|---|---|
@@ -69,6 +69,7 @@
 | 資料模型、TTL 索引 | 否 | 本機 Mongo 或記憶體版即可 |
 | API 端點骨架、錯誤處理、降級路徑 | 否 | 框架層 |
 | 前端 UI 刻版（mock 資料） | 否 | 靜態頁面 |
+| 掃 QR 安裝（`/install`、`/api/install`） | 否 | 區網 IP 偵測與 QR 產生都在本機算（`app/pwa.py`） |
 | `playlistItems.list`／`videos.list` 呼叫 | **是** | YouTube Data API |
 | Video Resolver — `search.list` 呼叫 | **是** | YouTube Data API |
 | ReccoBeats 特徵抓取／recommendation／音訊分析 | **是** | 外部 REST API |
@@ -264,11 +265,35 @@ LLM 不可用時退回規則式：`vibe` 與 `target` 由關鍵字推得，`seed
 | `/api/recommend`（情境入口） | POST (SSE) | `{ prompt }` | 同上，另在最前面補一個 `session` 事件 | 100 × N |
 | `/api/feedback` | POST (SSE) | `{ session_id, video_id, vote }` | `{ updated_profile }` + 重排後 Top 5 | ≈0 |
 | `/api/health` | GET | — | `{ youtube, reccobeats, llm, mongo, storage, quota_used, quota_limit, cache_only, … }` | 0 |
+| `/install` | GET | `?url=`（選填） | 掃 QR 裝到手機的圖解說明頁 | 0 |
+| `/api/install` | GET | `?url=`（選填） | `{ url, source, qr }`，QR 現算 | 0 |
 
 > **`/api/rerank` 已併入 `/api/feedback`**（範圍縮減決定，見 §7）。
 
 `/api/session` 的 `playlist_url` 也吃單曲連結（`youtu.be/…`、`watch?v=…`）：走 `videos.list`
 同樣 1 點，以那一首歌當品味起點。
+
+### `/api/session` 的進度串流
+
+50 首的歌單第一次解析要 55 秒——時間全花在 ReccoBeats 逐首 `search`（沒有批次搜尋端點），
+沒有進度回報，畫面上只有一顆停住的按鈕。所以帶 `Accept: text/event-stream` 時
+`/api/session` 改回 SSE 逐首回報；不帶就是原本的一次性 JSON，**契約不變**（#47）。
+
+```
+event: progress
+data: {"step":"fetched","done":0,"total":50,"label":"讀到 50 首曲目"}
+
+event: progress
+data: {"step":"analyze","done":9,"total":50,"label":"分析曲目 9／50：White Ferrari"}
+
+event: progress
+data: {"step":"profile","done":50,"total":50,"label":"整理你的品味輪廓"}
+
+event: session
+data: { …與一次性 JSON 相同的內容… }
+```
+
+串流路徑的錯誤改用 `error` 事件送出——HTTP 狀態碼在第一個事件就送出去了，不能再拋。
 
 ### 情境入口（`session_id` 省略）
 
@@ -327,6 +352,11 @@ data: {"returned":5,"dropped":3,"quota_used":300,
 
 `dropped` 與 `quota_used` 一定要回傳——Demo 最後五秒要用。
 `asia` 說出這一輪實際端出幾首亞洲曲目：比重是被調過的，這件事要看得見（#46）。
+
+> **實作現況：** `/api/session` 的回傳多了兩個**附加**欄位，原有欄位一個沒動：
+> `analyzed`（其中幾首的特徵是靠 iTunes 試聽片段分析出來的，不是曲庫查到的）與
+> `profile.top_artists`（前端「我的品味」顯示的常聽歌手——原型寫死的曲風標籤已移除，
+> 因為後端沒有曲風資料）。`/api/feedback` 的更新向量走的是 `profile` 事件。
 
 ---
 
@@ -458,8 +488,14 @@ db.taste_profiles.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 })
 
 > **實作現況：** 儲存有三個後端（記憶體＋落檔／Mongo／Firestore），介面一致，
 > 由 `STORAGE_BACKEND` 決定。**雲端跑的是 Firestore，不是 MongoDB**（#20）。
-> 另外：從 stub 模式切到真實模式時，舊快取會假裝自己是真的，要用
-> `scripts/purge_stub_cache.py` 清掉（#35）。
+> 另外三件事：
+> 1. 從 stub 模式切到真實模式時，舊快取會假裝自己是真的，要用
+>    `scripts/purge_stub_cache.py` 清掉（#35）。
+> 2. `feature_cache` 現在也記「查不到」（`source: "miss"`），但**只記 24 小時**
+>    （`MISS_TTL_SECONDS`）——曲庫之後可能補收，長期記下來會擋住重試。原本查不到就不寫，
+>    導致每次重新解析同一份歌單都把失敗查詢連同 iTunes 補救整套重跑（#47）。
+> 3. Firestore 沒有 `expireAfterSeconds`，TTL 語意是「`expires_at` 到期就刪」，
+>    政策由 `scripts/setup_firestore_ttl.sh` 設定，寫入端一律填明確的 `expires_at`。
 
 ---
 
@@ -534,6 +570,12 @@ taste 條位移、dropped 攔截）全數保留**。
 | LLM 回傳非合法 JSON | `json.loads` 失敗 | 重試 1 次要求「只輸出 JSON」；仍失敗走規則式 | 延遲略增，結果照常 |
 | LLM 產不出內容 | content 為空（推理模型吃光 token 預算） | 理由退回模板句，`/api/health` 的 `llm` 顯示 `degraded`（#28） | 理由較制式 |
 | 歌單為私人 | `playlistItems.list` 回 404／403 | 立刻提示請對方換連結 | 「這個連結讀不到，請改為公開連結，或換一份歌單／一首歌再試」 |
+
+> **實作現況（ReccoBeats 的 429）：** 不只是「重試 1 次」。官方不公開限制數字，只能實測——
+> 並行 4 就開始收 429，並行 8 全滅（#47）。所以 `services/http.py` 加了 Pacer 節流器
+> 控制送出間隔（預設 0.3 秒、同時在飛 2 個），收到 429 照 `Retry-After` 退避。
+> 真正有效的是**減少請求數**而不是加大並行：批次 `audio-features`（一次 40 個 id）、
+> 快取「查不到」的結果。同一份 50 首歌單：請求數 99 → 58，重新解析 47 秒 → 0.5 秒。
 
 ---
 
@@ -633,7 +675,7 @@ taste 條位移、dropped 攔截）全數保留**。
 - [x] 頁內播放，不另開分頁
 - [x] SSE 思考步驟正常串流
 - [x] 👎 後 taste 條位移且清單重排
-- [ ] PWA 可加入主畫面，無網址列（iOS 實機未測）
+- [ ] PWA 可加入主畫面，無網址列（掃 QR 安裝流程與 `/install` 圖解頁已做，iOS 實機未測）
 
 ### 合規
 - [x] `video_cache` TTL 索引 30 天已建立
@@ -649,7 +691,8 @@ taste 條位移、dropped 攔截）全數保留**。
 
 ### Demo
 - [ ] 備援影片已錄製並存於本機
-- [ ] 快取已預熱（200–300 首）
+- [ ] 快取已預熱（200–300 首）——`scripts/prewarm_features.py` 已備妥，
+      但還沒帶 `STORAGE_BACKEND=firestore` 跑過，線上讀不到（#48）
 - [x] 健康檢查頁可顯示依賴狀態與當日配額
 - [ ] 演練三次
 - [ ] 現場熱點已實測

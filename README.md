@@ -47,8 +47,8 @@ LLM 走規則式解析、ReccoBeats 打真實公開 API（不需要金鑰，連�
 終端機會直接畫出 QR。用 **iPhone 內建相機**掃 → 開啟 → Safari 底部<b>分享</b>鍵 →
 <b>加入主畫面</b>。
 
-站上任何一頁的導覽列都有 **QR Code**，點下去彈出同一張 QR（手機上也留著，方便給旁邊的人掃）；
-彈窗裡的「完整步驟」會開 `/install` 圖解頁。QR 由 `GET /api/install` 現算——
+站上任何一頁的導覽列都有 **QR Code**，點下去彈出同一張 QR（手機上也留著，方便給旁邊的人掃），
+按 Esc 或點背景關閉。圖解版的完整步驟在 `/install`。QR 由 `GET /api/install` 現算——
 那條路徑 Service Worker 不快取，換了 Wi-Fi 也不會掃到上一次的舊 IP。
 
 QR 掃到哪一個網址，優先序是：`?url=` 臨時指定 → `PUBLIC_BASE_URL` 設定 →
@@ -56,7 +56,7 @@ QR 掃到哪一個網址，優先序是：`?url=` 臨時指定 → `PUBLIC_BASE_
 
 ```bash
 # .env：設了之後，本機開發時掃到的也是線上版（Demo 用這個）
-PUBLIC_BASE_URL=https://museek-628708623127.asia-east1.run.app
+PUBLIC_BASE_URL=https://<CLOUD_RUN_URL>
 ```
 
 | 事項 | 說明 |
@@ -81,6 +81,11 @@ PUBLIC_BASE_URL=https://museek-628708623127.asia-east1.run.app
 
 情境入口是 `POST /api/recommend` 不帶 `session_id`：後端自己建工作階段，
 並在第一首歌之前用 `session` 事件把 id 與讀到的氛圍交還前端（👍👎 要用）。
+
+貼歌單那一條要等：50 首第一次解析約 55 秒，時間全花在 ReccoBeats 逐首查特徵
+（沒有批次搜尋端點）。所以 `/api/session` 帶 `Accept: text/event-stream` 會改回 SSE，
+逐首送 `progress` 事件讓前端畫進度條；不帶就是原本的一次性 JSON，契約不變。
+重新解析同一份歌單走快取，0.5 秒（#47）。
 
 **沒有示範歌單。** 整個專案不提供任何預設／示範歌單。私人歌單或網址錯誤時只給友善錯誤
 請對方換連結；還沒建立品味時，「我的品味」會跳「尚未建立品味清單」並用「馬上建立」
@@ -121,7 +126,7 @@ app/
     quota.py           配額計數與熔斷 §8（多金鑰時逐把各記一份）
     pipeline.py        把上面串成 session／recommend／feedback 三條流程
   services/
-    http.py            共用的 HTTP client 與逾時／重試
+    http.py            共用的 HTTP client、逾時／重試，以及 ReccoBeats 的節流（Pacer）
     youtube.py         playlistItems.list、videos.list、search.list（無金鑰→stub）
     reccobeats.py      search / audio-features / recommendation / 音訊分析（失敗→stub）
     itunes.py          曲庫查不到時，抓 30 秒試聽片段餵給分析端點 ← 免金鑰
@@ -136,12 +141,14 @@ app/
     sw.js              Service Worker：只快取外殼，不碰 /api/
 scripts/
   serve_phone.py           綁 0.0.0.0 啟動，並在終端機印出手機掃的 QR
-  prewarm_cache.py         Demo 前快取預熱 §8
+  prewarm_cache.py         Demo 前快取預熱 §8（YouTube 對照表）
+  prewarm_features.py      用歌手一次撈整個曲庫預熱 feature_cache，比逐首搜省 14 倍請求（#48）
   generate_icons.py        PWA 圖示產生器（不依賴 Pillow）
   verify_vibe_seeds.py     把備援種子池解析成 data/vibe_seeds.json（只打 ReccoBeats）
   migrate_cache_to_mongo.py 記憶體落檔搬進 Mongo（含配額計數）
   purge_stub_cache.py      清掉從 stub 模式留下來的假快取（#35）
   smoke_test.py            對部署好的位址跑一輪端到端驗證
+  setup_firestore_ttl.sh   設定 Firestore 的 expires_at TTL 政策（video_cache 30 天）
 tests/                     218 個測試，全程 stub，不對外連線
 ```
 
@@ -157,9 +164,15 @@ tests/                     218 個測試，全程 stub，不對外連線
 | `RECCOBEATS_MODE` | `auto` | `auto` 打真的、失敗自動退 stub；`stub` 完全不對外；`live` 只打真的 |
 | `LLM_CHANNEL` | `stub` | `stub` 規則式解析；`azure` Azure OpenAI；`gateway` OpenAI 相容端點；`external` Anthropic API |
 
-其餘分成五組：儲存（`STORAGE_BACKEND` 等）、ReccoBeats 補救（`RECCOBEATS_RECOVERY`／
-`RECCOBEATS_ANALYSIS`）、配額控管（`QUOTA_*`、`VERIFY_PER_ROUND`）、亞洲比重（`ASIA_*`、
-`SEED_ASIA_MIN`）、Ranker 調校（`BAND_*`、`WEIGHT_*`、`ECHO_CHAMBER_PENALTY`、`HARD_FILTER`）。
+其餘分成六組：儲存（`STORAGE_BACKEND` 等）、ReccoBeats 補救（`RECCOBEATS_RECOVERY`／
+`RECCOBEATS_ANALYSIS`）、曲風（`GENRE_LOOKUP*`、`WEIGHT_GENRE`、`GENRE_MIN_PER_ROUND`）、
+配額控管（`QUOTA_*`、`VERIFY_PER_ROUND`）、亞洲比重（`ASIA_*`、`SEED_ASIA_MIN`）、
+Ranker 調校（`BAND_*`、`WEIGHT_*`、`ECHO_CHAMBER_PENALTY`、`HARD_FILTER`）。
+
+曲風那一組**不用任何金鑰**（來源是 iTunes），預設就開著。六個音訊維度分不出
+citypop 與 soft rock，所以曲風是獨立的一軸——但 iTunes 的粒度到不了 citypop，
+它給的是 J-Pop／成人當代那一級（取捨與另外兩個被否決的來源見 NOTES.md #49）。
+設好之後記得重跑 `scripts/verify_vibe_seeds.py`，備援種子池才會先標好曲風。
 
 `LLM_CHANNEL=stub` 不是佔位符：規則式解析器認得中文情境詞，
 「下雨天開車想放空，類似我平常聽的但不要太吵」會解析成
@@ -215,6 +228,16 @@ tests/                     218 個測試，全程 stub，不對外連線
 
 實測 7 首華語／獨立曲目：可用種子從 2 首變成 6 首；單曲入口貼一首曲庫沒收的歌
 （Luci Gang – HEADLOCK），也能靠代打種子撈到 43 首候選、跑完一輪推薦。
+
+### ReccoBeats 的速率限制
+
+限制數字官方不公開，只能實測：**並行 4 就開始收 429，並行 8 全滅**。所以解法是
+減少請求數，不是加大並行——批次 `audio-features`（一次 40 個 id）、「查不到」的結果
+也寫進快取（只記 24 小時，曲庫之後可能補收），`services/http.py` 的 Pacer 控制送出
+間隔並照 `Retry-After` 退避。同一份 50 首歌單：請求數 99 → 58，重新解析 47 秒 → 0.5 秒（#47）。
+
+第一次解析的 55 秒消不掉——瓶頸是限制本身，而 `search` 沒有批次端點。要再快只能事先預熱：
+`scripts/prewarm_features.py` 用歌手一次撈整個曲庫，比逐首搜省 14 倍請求（#48）。
 
 ### 亞洲比重
 
@@ -319,6 +342,8 @@ AZURE_DEPLOYMENT=gpt-5.6-luna,AZURE_API_VERSION=2024-12-01-preview,LLM_TIMEOUT=6
 - [ ] 曲名正規化測資補到 100 筆真實樣本（目前 10 筆涵蓋華／英／日／韓）
 - [ ] iOS standalone 模式下的 IFrame 內嵌實測（外網 + 實機）
 - [ ] Ranker 參數再調校：`BAND_CENTER` / `BAND_WIDTH` / 權重 / 懲罰係數（全在 `.env`）
+- [ ] 帶 `STORAGE_BACKEND=firestore` 跑一次 `scripts/prewarm_features.py`——
+      現在跑在記憶體版只會落到 `data/cache.json`，線上讀不到（#48）
 
 ---
 

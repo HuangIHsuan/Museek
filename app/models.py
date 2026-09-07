@@ -1,4 +1,9 @@
-"""Day 1 凍結的 JSON 契約（開發文件 §3）。改這裡等於改契約，需經專案窗口同意。"""
+"""Day 1 凍結的 JSON 契約（開發文件 §3）。改這裡等於改契約，需經專案窗口同意。
+
+曲風那幾個欄位（Intent.genres／avoid_genres、Score.genre_fit、TrackResult.genres、
+ProfilePayload.genres）是**新增**的，都有預設值：舊的前端不讀就當沒有，
+既有欄位一個都沒動。加它們的理由是六個數值維度分不出 citypop 與 soft rock，
+曲風是獨立的一軸而不是第七個維度（見 core/genres 的檔頭）。"""
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
@@ -35,6 +40,12 @@ class Intent(BaseModel):
     reference_artists: List[str] = Field(default_factory=list)
     avoid: List[str] = Field(default_factory=list)
     exploration: Optional[str] = None
+    # 曲風（core/genres 的標準 slug）。六個數值維度分不出 citypop 與 soft rock，
+    # 所以「想聽什麼曲風」要獨立收，不能指望 constraints 表達得出來。
+    # 沒點名就是空清單——空清單代表「沒指定」，這時曲風那一項分數會退回
+    # 用歌單統計出來的分布（歌單入口）或整個消失（都沒有時）。
+    genres: List[str] = Field(default_factory=list)
+    avoid_genres: List[str] = Field(default_factory=list)
 
 
 class Score(BaseModel):
@@ -42,6 +53,9 @@ class Score(BaseModel):
     band: float
     context_fit: float
     novelty: float
+    # 曲風有多合，[0,1]。**None 代表無從判斷**（使用者沒指定曲風，或這首查不到
+    # 標籤），此時 ranker 會把這一項連同權重一起拿掉再正規化——不是當成 0 分。
+    genre_fit: Optional[float] = None
     final: float
 
 
@@ -53,6 +67,9 @@ class TrackResult(BaseModel):
     thumbnail: str
     reason: str
     features: Dict[str, float]
+    # 這首的曲風標籤（標準 slug）。前端拿來顯示，也讓「為什麼推這首」看得見
+    # ——數值都對但曲風不對的時候，使用者要能一眼看出是哪裡不對。
+    genres: List[str] = Field(default_factory=list)
     score: Score
 
 
@@ -67,6 +84,9 @@ class ProfilePayload(BaseModel):
     popularity_mean: float = 0.0
     warning: Optional[str] = None
     top_artists: List[str] = Field(default_factory=list)
+    # 這份歌單的曲風分布（slug → 權重，最大值正規化為 1）。平均向量說不出
+    # 「這個人聽的是 citypop 不是 soft rock」，這份分布可以。
+    genres: Dict[str, float] = Field(default_factory=dict)
 
 
 class SessionResponse(BaseModel):
@@ -95,6 +115,8 @@ class HealthResponse(BaseModel):
     youtube: str
     reccobeats: str
     llm: str
+    # 曲風標籤來源（iTunes）。unknown = 這個行程還沒查過任何一位歌手
+    genres: str = "unknown"
     mongo: str          # 前端契約沿用這個欄位名，實際後端看 storage
     storage: str = "memory"
     quota_used: int          # 所有金鑰的當日用量總和

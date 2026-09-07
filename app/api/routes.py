@@ -19,7 +19,7 @@ from app.models import (
     SessionRequest,
     SessionResponse,
 )
-from app.services import llm, reccobeats, youtube
+from app.services import itunes, llm, reccobeats, youtube
 
 log = logging.getLogger("museek.api")
 router = APIRouter(prefix="/api")
@@ -153,6 +153,7 @@ async def health(request: Request) -> HealthResponse:
         youtube=youtube.status(),
         reccobeats=reccobeats.last_status(),
         llm=llm.status(),
+        genres=itunes.genre_status(),
         # mongo 欄位是前端凍結契約的一部分，這裡回報「目前儲存後端健不健康」，
         # 實際用的是哪一種看 storage 欄位（memory／mongo／firestore）。
         mongo=("ok" if storage_ok else "down") if repo.kind != "memory" else "memory",

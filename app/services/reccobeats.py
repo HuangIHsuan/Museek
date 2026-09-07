@@ -6,8 +6,9 @@
      因此改成用歌名搜、再從回傳的 artists 比對歌手。
   2. 批次查特徵的端點是 /v1/audio-features?ids=a,b，
      不是 /v1/track/{ids}/audio-features（後者只吃單一 id）。
-  3. 推薦端點回傳的曲目**不含音訊特徵、也沒有 popularity**，
-     必須另外批次補特徵；popularity 則完全拿不到（見 NOTES #34）。
+  3. 推薦端點回傳的曲目**不含音訊特徵**，必須另外批次補特徵。
+     （#34 原本還記了「popularity 完全拿不到」，2026-09-07 重測發現**有回**，
+     已改成照實收——先前寫死 None 讓 novelty 對每一首都是 0.5。）
   4. 曲庫查不到的歌還有第二條路：/v1/analysis/audio-features 吃音訊檔直接算特徵。
      曲庫命中率對華語與獨立廠牌並不高，沒有這條路那些歌就是一整排 0.00（NOTES #38）。
   5. searchText 少於 3 個字會被擋下來回 400。兩個字的華語曲名（浴室、唯一、魚）
@@ -63,8 +64,13 @@ def _parse_features(payload: Dict) -> Dict[str, float]:
 
 
 def _parse_track(payload: Dict) -> Dict:
-    artists = payload.get("artists") or []
-    artist = artists[0].get("name", "") if artists and isinstance(artists[0], dict) else ""
+    artists = [a for a in (payload.get("artists") or []) if isinstance(a, dict)]
+    artist = artists[0].get("name", "") if artists else ""
+    # popularity 在 #34 記成「根本不存在」，但 2026-09-07 重新實測，搜尋與推薦端點
+    # 都有回這個欄位（實際值 84／62／58）。寫死 None 的後果是 §5.3 的
+    # novelty 對每一首都用 0.5——weight_novelty 那 25% 的分數變成常數，
+    # 對排序零貢獻。這裡照實收，收不到才回 None。
+    popularity = payload.get("popularity")
     return {
         "recco_id": payload.get("id") or "",
         "artist": artist,
@@ -72,7 +78,7 @@ def _parse_track(payload: Dict) -> Dict:
         # ISRC 前兩碼是發行登記國，是候選池裡唯一現成的地區訊號（core/regions）
         "isrc": payload.get("isrc") or "",
         "features": {},          # 搜尋與推薦端點都不含特徵，要另外查
-        "popularity": None,      # ReccoBeats 沒有這個欄位
+        "popularity": float(popularity) if isinstance(popularity, (int, float)) else None,
     }
 
 

@@ -42,8 +42,12 @@ def test_load_survives_a_corrupt_file(tmp_path):
 
 
 def test_pick_stays_inside_the_closest_shortlist():
-    """隨機是為了不讓所有人拿到同五首，但不能隨機到不相干的歌上。"""
-    pool = [{"recco_id": f"id{i}", "artist": "A", "title": f"T{i}",
+    """隨機是為了不讓所有人拿到同五首，但不能隨機到不相干的歌上。
+
+    每首歌各自一位歌手：這條測的是「隨機的範圍」，不是「同一位歌手挑幾首」。
+    那件事有 test_pick_takes_at_most_one_track_per_artist 專門管。
+    """
+    pool = [{"recco_id": f"id{i}", "artist": f"A{i}", "title": f"T{i}",
              "features": {"energy": i / 20, "valence": 0.5, "tempo": 100}}
             for i in range(20)]
     target = {"energy": 0.05, "valence": 0.5, "tempo": 100}
@@ -57,6 +61,23 @@ def test_pick_stays_inside_the_closest_shortlist():
     # 低 energy 的目標只該挑到 energy 最低那幾首，前 6 名以外的不該出現
     assert seen <= {f"id{i}" for i in range(6)}
     assert len(seen) > 3      # 而且每次不該都一樣
+
+
+def test_pick_takes_at_most_one_track_per_artist():
+    """池子裡一位歌手有好幾首，抽的時候一位只能出一首。
+
+    實測過沒有這條的後果：「聽 lo-fi 的人」前五拿到三首 STUTS。五首裡三首
+    同一位歌手不是推薦，是重複播放——而且同溫層懲罰擋不到它，那一項只看
+    使用者聽過的歌手，管不到同一輪之內。
+    """
+    pool = [{"recco_id": f"id{i}", "artist": "STUTS" if i < 8 else f"其他{i}",
+             "title": f"T{i}", "features": {"energy": 0.5, "valence": 0.5, "tempo": 100}}
+            for i in range(12)]
+    target = {"energy": 0.5, "valence": 0.5, "tempo": 100}
+    for _ in range(20):
+        picked = seed_pool.pick(pool, target, similarity, limit=4, shortlist=12)
+        names = [row["artist"] for row in picked]
+        assert len(names) == len(set(names)), f"同一位歌手出現不只一次：{names}"
 
 
 def test_pick_copes_with_a_pool_smaller_than_the_limit():

@@ -16,6 +16,7 @@ from typing import Dict, List, Optional
 import httpx
 
 from app.config import get_settings
+from app.core import genres
 from app.services.http import client
 from app.services.prompts import EXPLAIN_SYSTEM, INTENT_SYSTEM, vibe_system, wrap_user_data
 
@@ -308,7 +309,9 @@ def _normalize_vibe(raw: Dict) -> Dict:
             break
 
     vibe = " ".join(str(raw.get("vibe") or "").split())[:VIBE_MAX_CHARS]
-    return {"vibe": vibe, "target": target, "seed_artists": artists}
+    wanted = raw.get("genres")
+    return {"vibe": vibe, "target": target, "seed_artists": artists,
+            "genres": genres.coerce(wanted if isinstance(wanted, list) else [], limit=3)}
 
 
 # 規則式的氛圍中心值。只按情緒分四檔——活動帶來的限制已經由 Intent 的上下限表達，
@@ -346,7 +349,10 @@ def rule_based_vibe(user_text: str) -> Dict:
         vibe = f"{word}的氛圍"
     else:
         vibe = "沒有明確線索，先抓中性的氛圍"
-    return {"vibe": vibe, "target": target, "seed_artists": []}
+    # 曲風照使用者自己講的收，**不從情境推**：規則式沒有「什麼情境配什麼曲風」
+    # 的知識，硬編一份對照表等於幫使用者決定他沒說過的事，而且會佔掉名額。
+    return {"vibe": vibe, "target": target, "seed_artists": [],
+            "genres": list(intent.get("genres") or [])[:3]}
 
 
 async def explain(user_vector: Dict, candidate: Dict, context: str, *,
@@ -366,6 +372,10 @@ async def explain(user_vector: Dict, candidate: Dict, context: str, *,
             f"使用者情境：{wrap_user_data(context)}\n"
             f"曲目資訊：{wrap_user_data(candidate.get('artist', '') + ' - ' + candidate.get('title', ''))}"
         )
+        tags = [genres.label(slug) for slug in sorted(genres.genres_of(candidate))]
+        if tags:
+            # 曲風是查來的事實，可以講；查不到就整行不給，模型才不會去編一個
+            payload += f"\n曲目曲風標籤：{'、'.join(tags)}"
         system = EXPLAIN_SYSTEM + (MOOD_ONLY_NOTE if mood_only else "")
         try:
             text = (await _complete(system, payload, max_tokens=300)).strip()
@@ -381,7 +391,7 @@ async def explain(user_vector: Dict, candidate: Dict, context: str, *,
 
 MOOD_ONLY_NOTE = """
 
-7. 這位使用者沒有提供歌單，向量是從他描述的情境推出來的目標值，不是他的聆聽紀錄。
+8. 這位使用者沒有提供歌單，向量是從他描述的情境推出來的目標值，不是他的聆聽紀錄。
    因此第 3 點請改成：說明這首歌「符合情境的一點」與「超出情境的一點」，
    絕對不要出現「你的品味」「你常聽的」「你的歌單」這類說法。"""
 
@@ -430,6 +440,11 @@ def _normalize_intent(raw: Dict) -> Dict:
         "constraints": cleaned,
         "reference_artists": as_list(raw.get("reference_artists")),
         "avoid": as_list(raw.get("avoid")),
+        # 曲風走 genres.coerce：模型偶爾會回「citypop」「R&B」這種自由寫法，
+        # 甚至回表上沒有的 slug。認不出來的直接丟掉——寧可少一個條件，
+        # 也不要讓一個假 slug 佔著名額（永遠不會有候選命中它）。
+        "genres": genres.coerce(as_list(raw.get("genres"))),
+        "avoid_genres": genres.coerce(as_list(raw.get("avoid_genres"))),
         "exploration": raw.get("exploration") if raw.get("exploration") in ("high", "medium", "low") else "medium",
     }
 
@@ -511,12 +526,24 @@ def rule_based_intent(user_text: str) -> Dict:
     else:
         exploration = "medium"
 
+    # 曲風的規則式解析就是直接拿分類表的別名去比對——別名表本來就收了中英兩種
+    # 寫法，這裡不需要再維護第二份清單（維護第二份就一定會走散）。
+    wanted = genres.normalize([user_text or ""], parents=False)
+    # 「不要嘻哈」這種否定句，規則式判斷不出範圍，只能認一個很窄的樣式：
+    # 否定詞後面 8 個字內出現的曲風才算。判斷不出來就不判斷，不猜。
+    unwanted = set()
+    for match in re.finditer(r"(?:不要|不想|別給我|別|避免|沒有)(.{0,8})", str(user_text or "")):
+        unwanted |= genres.normalize([match.group(1)], parents=False)
+    wanted -= unwanted
+
     return {
         "mood": mood,
         "activity": activity,
         "constraints": constraints,
         "reference_artists": [],
         "avoid": avoid,
+        "genres": sorted(wanted)[:5],
+        "avoid_genres": sorted(unwanted)[:5],
         "exploration": exploration,
     }
 

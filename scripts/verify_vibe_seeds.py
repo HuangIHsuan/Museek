@@ -10,6 +10,10 @@
 沒有它 pipeline 只能看歌手名硬猜，而曲庫的寫法跟清單不見得一樣
 （sodagreen 全小寫、Leo王 大小寫不同），猜出來的東西不能拿來當保證。
 
+**`genres` 直接抄 `seed_pool.GENRES`**（手工標的），不打 iTunes。理由見那份清單
+上面的說明——最要緊的一點是 iTunes 表達不出 citypop，而這裡表達得出。
+讀取時 seed_pool.load() 也會回推，所以這個欄位其實是快取不是來源。
+
 ReccoBeats 有速率限制（NOTES #38），連續打會開始回 429，
 所以每一趟之間留一點間隔——這支腳本不趕時間，被擋下來重跑才是浪費。
 
@@ -25,7 +29,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.config import get_settings              # noqa: E402
-from app.services import reccobeats, seed_pool   # noqa: E402
+from app.core import genres                     # noqa: E402
+from app.services import reccobeats, seed_pool  # noqa: E402
 
 PER_ARTIST_DEFAULT = 3      # 每位歌手留幾首。留多一點，特徵空間的覆蓋才夠密
 CANDIDATES_PER_ARTIST = 20  # 從曲目清單的前幾首裡挑（一次批次查特徵就夠）
@@ -49,9 +54,10 @@ async def resolve(name: str, per_artist: int) -> list:
             # 歌手名記曲庫的寫法，不是我們清單裡的寫法——日後比對才對得上
             "artist": track.get("artist") or name,
             "title": track.get("title", ""),
-            # region 記我們清單裡的分區，不從曲庫回推：曲庫沒有這個欄位，
-            # 而「這位是不是亞洲歌手」是我們自己的主張，要留在自己的清單裡
+            # region 與 genres 都記我們清單裡的主張，不從曲庫回推：
+            # 曲庫兩個欄位都沒有，而這兩件事本來就是我們自己說了算
             "region": seed_pool.region_of(name),
+            "genres": seed_pool.genres_of(name),
             "features": found,
         })
         if len(rows) >= per_artist:
@@ -90,6 +96,9 @@ async def main() -> int:
 
     by_region = {region: sum(1 for row in seeds if row["region"] == region)
                  for region in (seed_pool.ASIA, seed_pool.WEST)}
+    spread = genres.distribution(seeds, limit=10)
+    if spread:
+        print("曲風分布：" + "、".join(f"{genres.label(k)} {v}" for k, v in spread.items()))
     print(f"\n寫入 {seed_pool.SEED_FILE}：{len(seeds)} 首，來自 {len(names) - len(missing)} 位歌手"
           f"（亞洲 {by_region[seed_pool.ASIA]} 首、歐美 {by_region[seed_pool.WEST]} 首）")
     if missing:

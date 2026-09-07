@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from typing import AsyncGenerator, Dict, List, Optional, Tuple
 
 from app.config import get_settings
-from app.core import profiler, ranker, regions
+from app.core import genres, profiler, ranker, regions
 from app.core.normalize import cache_key, name_key, parse_source, split_artist_title
 from app.core.quota import QuotaTracker
 from app.core.resolver import VideoResolver
@@ -402,7 +402,15 @@ async def create_session_stream(repo, quota: QuotaTracker, playlist_url: str
     yield "progress", {"step": "profile", "done": total, "total": total,
                        "label": "整理你的品味輪廓"}
 
-    vector, popularity_mean, seen_artists, matched, unmatched, warning = profiler.build_profile(tracks)
+    # 整份歌單的曲風查完再建輪廓，曲風分布才進得了品味輪廓。查的是**歌手**，
+    # 所以一份 50 首的歌單通常只花十幾趟請求（同一位歌手只查一次）。
+    await _tag_genres(tracks)
+
+    (vector, popularity_mean, seen_artists, matched, unmatched, warning,
+     genre_weights) = profiler.build_profile(tracks)
+    if genre_weights:
+        log.info("歌單曲風分布：%s", "、".join(
+            f"{genres.label(slug)} {weight}" for slug, weight in genre_weights.items()))
     analyzed = sum(1 for t in tracks if t.get("source") == "analysis")
     if warning and kind == "video":
         # 單曲入口只有一首歌，「歌單有較多曲目未收錄」的說法會讓人一頭霧水。
@@ -421,6 +429,8 @@ async def create_session_stream(repo, quota: QuotaTracker, playlist_url: str
         "tracks": tracks,
         "vector": vector,
         "popularity_mean": popularity_mean,
+        # 品味輪廓的第二支：曲風分布。使用者沒明講曲風時，排序就照這份比。
+        "genre_weights": genre_weights,
         "seen_artists": seen_artists,
         "blacklist": [],
         "down_votes": {},          # 歌手 → 連續 👎 次數
@@ -433,7 +443,7 @@ async def create_session_stream(repo, quota: QuotaTracker, playlist_url: str
     yield "session", {
         "session_id": session_id,
         "profile": {"vector": vector, "popularity_mean": popularity_mean, "warning": warning,
-                    "top_artists": _top_artists(tracks)},
+                    "top_artists": _top_artists(tracks), "genres": genre_weights},
         "matched": matched,
         "unmatched": unmatched,
         # 其中幾首的特徵是靠試聽片段分析出來的，不是曲庫查到的——這件事要看得見
@@ -520,6 +530,9 @@ async def create_vibe_session(repo, prompt: str) -> Dict:
     constraints = Constraints(**(intent.get("constraints") or {}))
     vector = ranker.target_vector(vibe.get("target"), constraints)
     seed_artists = vibe.get("seed_artists") or []
+    # 情境入口沒有歌單可統計，曲風分布就用氛圍讀出來的那幾種。
+    # 全部給同樣的權重——模型給的是一個沒有次序的清單，硬分主次是我們加的。
+    genre_weights = {slug: 1.0 for slug in (vibe.get("genres") or [])}
     seeds, seed_source = await _vibe_seeds(seed_artists, vector)
 
     session_id = uuid.uuid4().hex
@@ -530,6 +543,7 @@ async def create_vibe_session(repo, prompt: str) -> Dict:
         "tracks": [],              # 沒有聽過的歌，所以也沒有「已聽過」可以排除
         "vector": vector,
         "popularity_mean": 50.0,
+        "genre_weights": genre_weights,
         "seen_artists": [],        # 同溫層懲罰要有聽歌紀錄才成立，這裡一律不罰
         "blacklist": [],
         "down_votes": {},
@@ -569,14 +583,25 @@ ASIA_LIVE_PER_ARTIST = 40   # 每位翻前幾首（一次批次查特徵就夠�
 
 
 def _as_candidate(row: Dict) -> Dict:
-    """種子池的一列轉成候選的形狀。region 是我們自己的主張，跟著一起帶。"""
+    """種子池的一列轉成候選的形狀。region 是我們自己的主張，跟著一起帶。
+
+    genres 是 verify_vibe_seeds.py 預先解析好的。舊版的檔案沒有這個欄位，
+    那時補進來的亞洲候選就沒有曲風可比——**不會被扣分**（genre_fit 回 None
+    就整項拿掉），但也湊不進曲風名額。重跑那支腳本就會補上；
+    在那之前，這些候選仍然會在推薦流程裡被現場標（只是多花幾趟請求）。
+    """
+    # region 照實抄，**缺值就留空**。原本這裡缺值預設成 asia，那在只有亞洲注入時
+    # 看不出問題；現在曲風注入會從兩區一起抽，預設成 asia 等於把歐美的歌算成亞洲、
+    # 灌水亞洲佔比。空字串的意思是「沒有證據」，regions.region_of 本來就這樣定義。
     return {"recco_id": row.get("recco_id", ""), "artist": row.get("artist", ""),
             "title": row.get("title", ""), "features": row.get("features") or {},
-            "popularity": None, "region": row.get("region") or seed_pool.ASIA}
+            "genres": list(row.get("genres") or []),
+            "popularity": None, "region": row.get("region") or ""}
 
 
 async def _asia_from_catalog(vector: Dict[str, float], want: int, center: float,
-                             constraints: Constraints) -> List[Dict]:
+                             constraints: Constraints,
+                             wanted_genres: Optional[Dict[str, float]] = None) -> List[Dict]:
     """沒有預解析檔時的後路：現場翻幾位亞洲歌手的曲目清單。
 
     比讀檔慢（每位約兩趟請求），但不需要先跑腳本。挑哪幾位是隨機的——
@@ -594,12 +619,15 @@ async def _asia_from_catalog(vector: Dict[str, float], want: int, center: float,
         rows.extend({**track, "features": found[track["recco_id"]], "region": seed_pool.ASIA}
                     for track in tracks if found.get(track["recco_id"]))
     log.info("亞洲候選改為即時解析（%s），取得 %d 首", "、".join(picked), len(rows))
-    return _draw_asia(rows, vector, want, center, constraints)
+    # 即時解析這條路的曲目現場標曲風（歌手數不多，而且馬上會被快取住）
+    await _tag_genres(rows)
+    return _draw_from_pool(rows, vector, want, center, constraints, wanted_genres)
 
 
-def _draw_asia(rows: List[Dict], vector: Dict[str, float], want: int, center: float,
-               constraints: Constraints) -> List[Dict]:
-    """抽 want 首亞洲候選，**優先抽符合情境上下限的**。
+def _draw_from_pool(rows: List[Dict], vector: Dict[str, float], want: int, center: float,
+                    constraints: Constraints,
+                    wanted_genres: Optional[Dict[str, float]] = None) -> List[Dict]:
+    """從已經篩好的種子池列裡抽 want 首，**優先抽符合情境上下限、而且曲風對得上的**。
 
     地區名額只在同一層裡對調（ranker.region_quota 紀律 1），所以補進來的歌
     如果違反「不要太吵」，它就永遠待在後段那一層，名額再怎麼保也拉不上來——
@@ -610,18 +638,26 @@ def _draw_asia(rows: List[Dict], vector: Dict[str, float], want: int, center: fl
     """
     fits = [row for row in rows
             if ranker.passes_hard_filter(constraints, row.get("features") or {})]
-    picked = seed_pool.draw(fits, vector, ranker.similarity, want=want,
-                            region="", center=center)
-    if len(picked) < want:
+    # 使用者點名曲風時，這一份補給也要照那個曲風補。不然兩件事會互相拆台：
+    # 亞洲名額把這些歌塞進前五，曲風名額再把它們換掉——最後兩個下限都掉。
+    # 曲風對得上的優先抽，湊不滿再放寬（放寬也比湊不滿好，理由同下）。
+    hits = _genre_hit_test(wanted_genres or {})
+    tiers = [[r for r in fits if hits(r)], fits] if hits else [fits]
+
+    picked: List[Dict] = []
+    for tier in [*tiers, rows]:
+        if len(picked) >= want:
+            break
         taken = {row["recco_id"] for row in picked}
-        picked += seed_pool.draw([r for r in rows if r["recco_id"] not in taken],
+        picked += seed_pool.draw([r for r in tier if r["recco_id"] not in taken],
                                  vector, ranker.similarity, want=want - len(picked),
                                  region="", center=center)
     return picked
 
 
 async def _asia_candidates(vector: Dict[str, float], want: int, center: float,
-                           constraints: Constraints) -> List[Dict]:
+                           constraints: Constraints,
+                           wanted_genres: Optional[Dict[str, float]] = None) -> List[Dict]:
     """補一批「一定是亞洲」的候選進候選池。
 
     為什麼要補：推薦端點回來的候選跟種子幾乎無關，實測 179 首裡只有 7 首是
@@ -640,11 +676,81 @@ async def _asia_candidates(vector: Dict[str, float], want: int, center: float,
     pool = seed_pool.load()
     if pool:
         asia = [row for row in pool if row.get("region") == seed_pool.ASIA]
-        return [_as_candidate(row) for row in _draw_asia(asia, vector, want, center, constraints)]
+        return [_as_candidate(row)
+                for row in _draw_from_pool(asia, vector, want, center, constraints, wanted_genres)]
     log.info("沒有 data/vibe_seeds.json，亞洲候選改為即時解析"
              "（跑 scripts/verify_vibe_seeds.py 可以省掉這一段）")
-    rows = await _asia_from_catalog(vector, want, center, constraints)
+    rows = await _asia_from_catalog(vector, want, center, constraints, wanted_genres)
     return [_as_candidate(row) for row in rows]
+
+
+async def _genre_candidates(vector: Dict[str, float], want: int, center: float,
+                            constraints: Constraints,
+                            wanted_genres: Dict[str, float]) -> List[Dict]:
+    """補一批「曲風一定對得上」的候選進候選池。沒有想要的曲風時不補。
+
+    **為什麼非補不可。** 這跟 #46 的亞洲比重是同一件事、同一個結論：
+    排序排不出池子裡沒有的東西。推薦端點回來的是全球長尾的隨機切片，
+    使用者聽 R&B 時池子裡本來就沒幾首 R&B——實測 42 首候選裡只有 2 首算命中，
+    這種情況下**權重調到 1.0、名額調到 4，前五命中數完全不動**。
+
+    而執行期補不出曲風覆蓋率：曲風來自 iTunes，量級是每分鐘約 20 次（NOTES #49）。
+    所以要嘛池子裡本來就有同曲風的歌，要嘛就沒有——沒有中間選項。
+    我們自己的種子池是唯一可以離線標滿曲風的地方，也是唯一標得出 city_pop 的地方。
+
+    **補進來的歌不享有任何加分**（同 #46 的紀律）：它們帶著自己的特徵與曲風
+    進池子，跟其他候選被同一把尺量。這一步只負責「池子裡有東西可選」。
+
+    這裡不分地區——地區名額另有機制，而且亞洲那一份也會照曲風挑
+    （見 _draw_from_pool），所以同一首歌可以同時滿足兩個名額。
+    """
+    if want <= 0 or not wanted_genres or get_settings().reccobeats_mode == "stub":
+        return []
+    pool = seed_pool.load()
+    if not pool:
+        # 沒有預解析檔時不現場解析：那要對曲庫打好幾趟，而這是加分路徑。
+        # 亞洲那一份有現場解析的後路，是因為地區比重是硬需求。
+        log.info("沒有 data/vibe_seeds.json，這一輪不補曲風候選")
+        return []
+
+    hits = _genre_hit_test(wanted_genres)
+    matched = [row for row in pool if hits(row)]
+    if not matched:
+        log.info("種子池裡沒有 %s 的曲目，這一輪不補曲風候選",
+                 "／".join(genres.label(g) for g in wanted_genres))
+        return []
+
+    # **兩區各補一半。** 種子池的亞洲那一區比較大（59 對 39），整池一起抽的話
+    # 補進來的同曲風候選幾乎都是亞洲的，接著曲風名額把它們拉進前五，
+    # 前五就變成 5/5 亞洲——那正是地區上限當初要擋的「幾乎全部」。
+    # 兩區都有同曲風的歌可選，上限才有機會守得住。
+    west_want = want // 2
+    picked = _draw_from_pool([r for r in matched if r.get("region") == seed_pool.WEST],
+                             vector, west_want, center, constraints, wanted_genres)
+    taken = {row["recco_id"] for row in picked}
+    picked += _draw_from_pool([r for r in matched if r["recco_id"] not in taken],
+                              vector, want - len(picked), center, constraints, wanted_genres)
+    return [_as_candidate(row) for row in picked]
+
+
+def _one_artist_each(rows: List[Dict]) -> List[Dict]:
+    """補進來的候選裡，同一位歌手只留第一首（保序）。
+
+    種子池一位歌手有好幾首，而注入是**分好幾次抽的**（亞洲一次、曲風的兩區
+    各一次）。每一次抽自己內部有去重，跨次卻沒有——實測「聽 lo-fi 的人」
+    前五拿到三首 STUTS，就是三次抽都抽到他。
+
+    去重放在這裡而不是各自的抽取裡：那幾次抽本來就該互相不知道對方，
+    知道了就得互相傳狀態，而這件事在合併前做一次就好。
+    """
+    out, seen = [], set()
+    for row in rows:
+        key = name_key(row.get("artist") or "")
+        if key and key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return out
 
 
 def _merge_candidates(base: List[Dict], extra: List[Dict]) -> List[Dict]:
@@ -678,6 +784,57 @@ def _quota_for_backups(ranked: List[Dict], constraints: Constraints, settings) -
         backup,
     )
     return head + rest
+
+
+def _wanted_genres(intent: Dict, profile: Dict) -> Tuple[Dict[str, float], str]:
+    """這一輪要照哪些曲風排，回傳 (曲風→權重, 來源)。來源是 "prompt"／"profile"／""。
+
+    **使用者明講的優先，而且是取代不是相加。** 「今天想聽 citypop」是一句
+    覆寫的話——把它跟歌單既有的曲風分布混在一起，等於告訴使用者「你說了，
+    但我只聽一半」。沒明講才退回歌單（或氛圍）統計出來的分布。
+
+    明講的曲風權重一律是 1：使用者講了兩種曲風，那就是兩種都要，
+    沒有主次可言（他沒說主次，排序就不該替他發明一個）。
+    """
+    wanted = {slug: 1.0 for slug in (intent.get("genres") or [])}
+    if wanted:
+        return wanted, "prompt"
+    stored = {slug: float(weight) for slug, weight
+              in (profile.get("genre_weights") or {}).items() if weight}
+    return (stored, "profile") if stored else ({}, "")
+
+
+async def _tag_genres(rows: List[Dict]) -> int:
+    """把曲風標到這批列上，回傳標到幾首。關掉或 stub 模式時一律不對外。
+
+    stub 模式的意思是「完全不對外」，所以這裡跟 _asia_candidates 用同一條規則。
+    少了這道閘，內網開發與整份測試都會安靜地打到 iTunes——而且因為 _search
+    自己把例外吞掉，看起來只會像「就是比較慢」。
+    """
+    settings = get_settings()
+    if not settings.genre_lookup or settings.reccobeats_mode == "stub":
+        return 0
+    return await itunes.tag_candidates(rows, limit=settings.genre_lookup_max)
+
+
+# 「算命中」的門檻。取 0.5 而不是 1.0：R&B 對 neo soul 是 0.85、citypop 對 funk
+# 是 0.55，那些都該算命中；但 citypop 對泛泛的 pop 只有 0.4，那不算——
+# 使用者要的是那個圈子，不是它的上位分類。
+GENRE_HIT = 0.5
+
+
+def _genre_hit_test(wanted: Dict[str, float]):
+    """「這首算不算命中使用者要的曲風」的判斷式。沒有指定曲風時回 None。
+
+    回 None 而不是回一個「永遠 False」的函式：呼叫端要能分辨「沒指定」與
+    「指定了但沒命中」——前者不該保留名額，後者要把湊不到這件事講出來。
+    """
+    if not wanted:
+        return None
+
+    def hits(candidate: Dict) -> bool:
+        return (genres.genre_fit(wanted, genres.genres_of(candidate)) or 0.0) >= GENRE_HIT
+    return hits
 
 
 # --- /api/recommend ----------------------------------------------------------
@@ -723,9 +880,18 @@ async def recommend_stream(repo, quota: QuotaTracker, session_id: str, prompt: s
         return
     candidates = await reccobeats.get_recommendations(seeds, limit=50)
     candidates = await _fill_missing_features(repo, candidates)
-    # 推薦端點回來的候選幾乎沒有亞洲（實測 3.9%），自己補一份進來（NOTES #46）
-    injected = await _asia_candidates(profile.get("vector") or {}, settings.asia_candidates,
-                                      band_center, constraints)
+    wanted_genres, genre_source = _wanted_genres(intent_raw, profile)
+    avoid_genres = list(intent_raw.get("avoid_genres") or [])
+    # 推薦端點回來的候選幾乎沒有亞洲（實測 3.9%），自己補一份進來（NOTES #46）。
+    # 曲風同理、而且更嚴重：42 首候選裡只有 2 首對得上使用者的曲風（NOTES #49）。
+    # 兩份都從同一個種子池抽，而且亞洲那一份也照曲風挑，所以會有重疊——
+    # _merge_candidates 會去重，重疊反而是好事：一首歌同時滿足兩個名額。
+    vector = profile.get("vector") or {}
+    injected = await _asia_candidates(vector, settings.asia_candidates,
+                                      band_center, constraints, wanted_genres)
+    injected += await _genre_candidates(vector, settings.genre_candidates,
+                                        band_center, constraints, wanted_genres)
+    injected = _one_artist_each(injected)
     candidates = _merge_candidates(candidates, injected)
     heard = {cache_key(t.get("artist", ""), t.get("title", "")) for t in profile.get("tracks", [])}
     candidates = [c for c in candidates
@@ -733,11 +899,19 @@ async def recommend_stream(repo, quota: QuotaTracker, session_id: str, prompt: s
     # 補進來的有幾首真的留在池子裡（跟推薦端點重複、或使用者聽過的都會被剔掉）。
     # 這裡不能用「候選裡有幾首亞洲」代替：推薦端點自己也會給幾首亞洲，
     # 混在一起講就是把別人給的算成自己補的
+    # 整池候選標完曲風再排序（補進來的亞洲候選也要一起標到）。查的是歌手、
+    # 而且有行程內快取，所以熱機之後這一步幾乎是零請求。
+    tagged = await _tag_genres(candidates)
+
     kept = {cache_key(c.get("artist", ""), c.get("title", "")) for c in candidates}
     added = sum(1 for c in injected if cache_key(c.get("artist", ""), c.get("title", "")) in kept)
     label = f"從 ReccoBeats 取得 {len(candidates) - added} 首候選"
     if added:
-        label += f"，另外補進 {added} 首亞洲曲目"
+        label += f"，另外從種子池補進 {added} 首"
+    if wanted_genres:
+        # 標到幾首要講出來。曲風那一項只在標得到的候選上作數，
+        # 標到的比例太低時「有照曲風排」這句話就不成立（同 #4 的教訓）
+        label += f"（{tagged}／{len(candidates)} 首查得到曲風）"
     yield "thinking", {"step": "candidates", "label": label}
 
     # 3) Discovery Ranking
@@ -749,28 +923,68 @@ async def recommend_stream(repo, quota: QuotaTracker, session_id: str, prompt: s
         blacklist=profile.get("blacklist"),
         hard_filter=settings.hard_filter,
         min_pool=settings.return_per_round,
+        avoid_genres=avoid_genres,
         center=band_center,
         width=band_width,
         w_band=settings.weight_band,
         w_context=settings.weight_context,
         w_novelty=settings.weight_novelty,
+        w_genre=settings.weight_genre,
+        wanted_genres=wanted_genres,
         penalty=settings.echo_chamber_penalty,
     )
     # 補進來的亞洲候選若一首都擠不進驗證名單，補了等於沒補——這一步只保下限，
     # 而且只在同一層（通過／未通過硬過濾）裡對調，不會把違反情境的歌拉到前面
     # 名額保在「真的會端出去的那五首」，不是驗證名單的八首：驗證名單後段是備位，
     # 前五首都能播的時候永遠輪不到——名額擺在那裡等於沒擺（實測補了 15 首、前五名 0 首）
-    ranked, asia_in_head = ranker.region_quota(
+    # 有「想要的曲風」時，前五首保一個下限——不管那是使用者明講的，還是從歌單
+    # 統計出來的。後者一樣算數：使用者貼了一份清一色 R&B 的歌單，就是講了
+    # 「我要 R&B」，只是用歌單講的。沒有任何來源時（_wanted_genres 回空）才不保。
+    #
+    # 兩個名額連跑，順序與 prefer_keep 都是必要的：曲風先跑、地區後跑，
+    # 而地區那一輪要知道「曲風剛剛保下來的別動」，否則後跑的會把先跑的
+    # 擠出去，兩個下限互相拆台、最後兩個都不成立。
+    # **兩個名額會打架，順序就是優先順序。** 補進來的同曲風候選多半是亞洲的
+    # （種子池的亞洲那一區比較大），所以「至少 4 首同曲風」與「至多 2 首亞洲」
+    # 常常無法同時成立——實測前五拿到 4 首同曲風之後，地區上限把其中 2 首換掉了。
+    #
+    # 曲風排在後面，也就是曲風贏。理由是使用者能感覺到的差異：端出四首他從沒
+    # 聽過的曲風，比端出四首亞洲的歌更像是推薦壞了。地區上限退成「盡量」——
+    # 它本來就是為了擋「幾乎全部都是亞洲」，而不是為了在使用者的品味就是
+    # 亞洲曲風時把歌換掉。
+    #
+    # 曲風那一輪帶著 prefer_keep=is_asia：真的要換人時，先換非亞洲的那幾首，
+    # 這樣地區下限在多數情況下還是保得住。
+    ranked, _ = ranker.region_quota(
         ranked, constraints, regions.is_asia,
         settings.asia_min_per_round, settings.asia_max_per_round, settings.return_per_round,
+        avoid_genres=avoid_genres,
     )
+    hits_genre = _genre_hit_test(wanted_genres)
+    if hits_genre and settings.genre_min_per_round > 0:
+        ranked, _ = ranker.region_quota(
+            ranked, constraints, hits_genre,
+            settings.genre_min_per_round, -1, settings.return_per_round,
+            avoid_genres=avoid_genres, prefer_keep=regions.is_asia,
+        )
+    # 兩個數字都從**最終**的前段重算。取各自名額的回傳值是錯的：後面那一輪
+    # 還會再動前段，先算的那個數字在端出去之前就已經過期了。
+    head = ranked[:settings.return_per_round]
+    asia_in_head = sum(1 for c in head if regions.is_asia(c))
+    genre_in_head = sum(1 for c in head if hits_genre(c)) if hits_genre else 0
     ranked = _quota_for_backups(ranked, constraints, settings)
     # 目前的實作是「分級」不是「全丟」，文案要照實說，否則會在 Demo 現場被戳破
     filter_note = "（違反情境的已排到後段）" if hard_filtered else ""
+    genre_note = ""
+    if wanted_genres:
+        names = "／".join(genres.label(slug) for slug in wanted_genres)
+        genre_note = (f"，其中 {genre_in_head} 首命中 {names}" if genre_in_head
+                      # 湊不到就要講。安靜地少給，看起來就像曲風那句話沒被讀到
+                      else f"，但候選池裡找不到 {names}")
     yield "thinking", {
         "step": "rank",
         "label": f"依 Discovery Score 排序{filter_note}，取前 {settings.verify_per_round} 首驗證"
-                 + (f"，其中 {asia_in_head} 首亞洲" if asia_in_head else ""),
+                 + (f"，其中 {asia_in_head} 首亞洲" if asia_in_head else "") + genre_note,
     }
 
     # 4) 驗證可播放（丟棄補位在這一層完成，使用者無感）
@@ -789,6 +1003,7 @@ async def recommend_stream(repo, quota: QuotaTracker, session_id: str, prompt: s
             thumbnail=candidate.get("thumbnail", ""),
             reason=reason,
             features=_display_features(candidate.get("features") or {}),
+            genres=sorted(genres.genres_of(candidate)),
             score=candidate["score"] if isinstance(candidate.get("score"), Score)
             else Score(**candidate["score"]),
         )
@@ -805,6 +1020,13 @@ async def recommend_stream(repo, quota: QuotaTracker, session_id: str, prompt: s
         # 補了多少、實際端出幾首亞洲，都要看得見。只在後端調參而不講出來的話，
         # 「比重變了嗎」這個問題永遠只能靠感覺回答（同 #4、#44 的教訓）
         "asia": sum(1 for c in report.resolved[:len(results)] if regions.is_asia(c)),
+        # 曲風跟亞洲比重同一個理由要看得見：只在後端調權重而不回報命中數，
+        # 「曲風有作用嗎」這個問題永遠只能靠感覺回答
+        "genres": [slug for slug in wanted_genres],
+        "genre_source": genre_source,
+        "genre_hits": (sum(1 for c in report.resolved[:len(results)] if hits_genre(c))
+                       if hits_genre else 0),
+        "genre_tagged": tagged,
         "seed_source": profile.get("seed_source", "playlist"),
         "dropped": report.dropped,
         "quota_used": await quota.used(),
@@ -832,6 +1054,14 @@ async def feedback_stream(repo, quota: QuotaTracker, session_id: str, video_id: 
     vector = ranker.apply_feedback(profile.get("vector") or {}, target.get("features") or {}, vote)
     updates: Dict = {"vector": vector}
 
+    # 曲風偏好也要跟著動。只動向量的話，使用者對著三首 citypop 按 👍，
+    # 系統學到的只有「他喜歡這個 energy」——而那正是六個維度分不出來的那件事。
+    # 明講過曲風的那一輪不在這裡覆寫：那是使用者這一次的指定，不是長期偏好。
+    genre_weights = ranker.apply_genre_feedback(
+        profile.get("genre_weights") or {}, target.get("genres") or [], vote)
+    if genre_weights != (profile.get("genre_weights") or {}):
+        updates["genre_weights"] = genre_weights
+
     # §5.5 同一位歌手連續兩次 👎 → 進 session 黑名單
     artist_key = (target.get("artist") or "").strip().lower()
     blacklist = list(profile.get("blacklist") or [])
@@ -844,7 +1074,8 @@ async def feedback_stream(repo, quota: QuotaTracker, session_id: str, video_id: 
         down_votes.pop(artist_key, None)
     updates.update({"blacklist": blacklist, "down_votes": down_votes})
 
-    yield "profile", {"updated_profile": vector, "blacklist": blacklist}
+    yield "profile", {"updated_profile": vector, "blacklist": blacklist,
+                      "genres": genre_weights}
 
     # 用新向量重排「上一輪剩下的候選」，不再打任何外部 API（≈0 配額）
     last_prompt = profile.get("last_prompt") or ""
@@ -854,6 +1085,7 @@ async def feedback_stream(repo, quota: QuotaTracker, session_id: str, video_id: 
     remaining = [t for t in last_round
                  if t.get("video_id") != video_id
                  and (t.get("artist") or "").strip().lower() not in blacklist]
+    wanted_genres, _ = _wanted_genres(intent_raw, {**profile, "genre_weights": genre_weights})
     reranked, _ = ranker.rank(
         remaining, vector, constraints,
         seen_artists=profile.get("seen_artists"),
@@ -861,7 +1093,8 @@ async def feedback_stream(repo, quota: QuotaTracker, session_id: str, video_id: 
         hard_filter=False,  # 這一輪的候選已經過濾過，重排不再二次砍
         center=settings.band_center, width=settings.band_width,
         w_band=settings.weight_band, w_context=settings.weight_context,
-        w_novelty=settings.weight_novelty, penalty=settings.echo_chamber_penalty,
+        w_novelty=settings.weight_novelty, w_genre=settings.weight_genre,
+        wanted_genres=wanted_genres, penalty=settings.echo_chamber_penalty,
     )
 
     payloads = []

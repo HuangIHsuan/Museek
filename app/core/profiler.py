@@ -4,6 +4,7 @@ from __future__ import annotations
 from statistics import mean
 from typing import Dict, List, Optional, Tuple
 
+from app.core import genres
 from app.models import FEATURE_KEYS
 
 LOW_MATCH_THRESHOLD = 0.40  # §9：比對率 < 40% 要降級並提示
@@ -19,10 +20,20 @@ def build_vector(feature_rows: List[Dict[str, float]]) -> Dict[str, float]:
     return vector
 
 
-def build_profile(tracks: List[Dict]) -> Tuple[Dict[str, float], float, List[str], int, int, Optional[str]]:
-    """回傳 (vector, popularity_mean, seen_artists, matched, unmatched, warning)。
+def build_profile(tracks: List[Dict]) -> Tuple[Dict[str, float], float, List[str], int, int,
+                                              Optional[str], Dict[str, float]]:
+    """回傳 (vector, popularity_mean, seen_artists, matched, unmatched, warning, genre_weights)。
 
-    tracks 每筆需含 artist／title／matched，matched=True 者另含 features 與 popularity。
+    tracks 每筆需含 artist／title／matched，matched=True 者另含 features 與 popularity；
+    有查到曲風的另含 genres。
+
+    **曲風分布是向量之外的第二支輪廓，不是向量的一部分。** 六個維度的平均值
+    說不出「這個人聽的是 citypop 不是 soft rock」——兩者的 energy／valence／tempo
+    可以完全一樣。所以曲風單獨統計成一份分布，排序時當獨立的一項用
+    （見 core/genres 與 ranker.score_candidate）。
+
+    統計的母體是 **matched 的曲目**，跟向量同一批：沒查到特徵的那些歌
+    連帶也多半沒有曲風標籤，混進來只會讓分母虛胖。
     """
     matched_rows = [t for t in tracks if t.get("matched")]
     matched = len(matched_rows)
@@ -40,4 +51,5 @@ def build_profile(tracks: List[Dict]) -> Tuple[Dict[str, float], float, List[str
     rate = matched / len(tracks) if tracks else 0.0
     if tracks and rate < LOW_MATCH_THRESHOLD:
         warning = "這份歌單有較多曲目未收錄，推薦可能較發散。"
-    return vector, popularity_mean, seen_artists, matched, unmatched, warning
+    return (vector, popularity_mean, seen_artists, matched, unmatched, warning,
+            genres.distribution(matched_rows))
