@@ -6,13 +6,16 @@
 //
 // 區網 http:// 不會註冊這支（見 index.html），所以它只在 HTTPS 部署時生效。
 
-const VERSION = "museek-v1";
+const VERSION = "museek-v2";
 const SHELL = [
   "/",
   "/static/manifest.webmanifest",
   "/static/icons/icon-192.png",
   "/static/icons/icon-512.png",
   "/static/icons/apple-touch-icon.png",
+  // 點陣字是整個 8-bit 外觀的骨架，離線時沒它就會掉回黑體
+  "/static/fonts/Cubic_11.woff2",
+  "/static/fonts/PressStart2P-latin.woff2",
 ];
 
 self.addEventListener("install", (event) => {
