@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import mimetypes
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -21,13 +20,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 log = logging.getLogger("museek")
 
 STATIC_DIR = "app/static"
-
-# StaticFiles 用系統的 mimetypes 表，而容器裡沒登記這幾種字型格式，
-# 結果 .woff2 會回 text/plain。瀏覽器會嗅探內容照樣能用，但那是錯的，
-# 也會讓部分 CDN 判斷不該壓縮的東西去壓縮。
-for _mime, _ext in (("font/woff2", ".woff2"), ("font/woff", ".woff"),
-                    ("font/ttf", ".ttf"), ("font/otf", ".otf")):
-    mimetypes.add_type(_mime, _ext)
 
 
 @asynccontextmanager
