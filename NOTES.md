@@ -1442,3 +1442,33 @@ metal 掉到 0.4（低於「算命中」的 0.5 門檻），shoegaze 仍然是 1
   `artist/search` 驗過歌手名，但 `artist_tracks` 回來的曲目裡混了合輯與 feat.，
   存進去的是曲目的主要歌手。曲風靠歌手名回推時這 44 首就對不上
   （377 首裡回推到 327 首）。重跑解析腳本會照搜尋的那位歌手寫入曲風。
+
+## 41　字型檔的 Content-Type 是 text/plain（未修，屬前端範圍）
+
+8-bit 風格的兩支點陣字回的 content-type 不對：
+
+```
+/static/fonts/Cubic_11.woff2            HTTP 200  400,228 bytes  text/plain
+/static/fonts/PressStart2P-latin.woff2  HTTP 200    4,704 bytes  text/plain
+```
+
+原因是 `StaticFiles` 用系統的 `mimetypes` 表，容器裡沒登記 `.woff2`。
+
+**目前不影響功能**：瀏覽器會嗅探內容，實測 `document.fonts` 兩個字型都是
+`loaded`，畫面也正確渲染成點陣字。
+
+要修的話是 `app/main.py` 啟動時補一行：
+
+```python
+mimetypes.add_type("font/woff2", ".woff2")
+```
+
+> 這一項屬於前端同仁的範圍，先記著不動。曾經改過並推上去（commit 5b9e4fa），
+> 已用 `git revert` 還原（02a6986）——沒有 force push，因為這是共用 repo。
+
+### 順帶量到的：Cubic_11.woff2 有 400KB
+
+是首頁最大的單一資源。Service Worker 已經預快取，第二次載入沒問題；
+`font-display: swap` 也設了，所以文字不會被字型擋住顯示。
+第一次進站（例如現場掃 QR Code 用行動網路）仍要多等這 400KB，
+在意的話可以做字型子集化，但那要看實際用到哪些字。
